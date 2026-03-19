@@ -1,0 +1,67 @@
+plugins {
+    id 'java'
+    id 'application'
+    id 'com.github.johnrengelman.shadow' version '8.1.1'
+}
+
+group = 'com.runecartel'
+version = '1.0'
+
+java {
+    sourceCompatibility = JavaVersion.VERSION_11
+    targetCompatibility = JavaVersion.VERSION_11
+}
+
+repositories {
+    mavenCentral()
+}
+
+dependencies {
+    // No external dependencies needed for the launcher
+}
+
+application {
+    mainClass = 'com.runecartel.launcher.Launcher'
+}
+
+sourceSets {
+    main {
+        resources {
+            srcDirs = ['src/main/resources']
+        }
+    }
+}
+
+// Explicitly copy the embedded client JAR
+processResources {
+    duplicatesStrategy = DuplicatesStrategy.INCLUDE
+    from('src/main/resources') {
+        include '**/*'
+    }
+}
+
+jar {
+    manifest {
+        attributes(
+            'Main-Class': 'com.runecartel.launcher.Launcher',
+            'Implementation-Title': 'RuneCartel Launcher',
+            'Implementation-Version': version
+        )
+    }
+    duplicatesStrategy = DuplicatesStrategy.INCLUDE
+}
+
+shadowJar {
+    archiveBaseName.set('RuneCartel-Launcher')
+    archiveClassifier.set('')
+    archiveVersion.set('')
+    duplicatesStrategy = DuplicatesStrategy.INCLUDE
+    
+    // Exclude conflicting META-INF entries from embedded JARs
+    exclude 'META-INF/*.SF'
+    exclude 'META-INF/*.DSA'
+    exclude 'META-INF/*.RSA'
+    
+    mergeServiceFiles()
+}
+

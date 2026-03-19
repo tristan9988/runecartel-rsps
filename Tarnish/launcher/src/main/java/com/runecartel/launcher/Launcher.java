@@ -1,0 +1,661 @@
+package com.runecartel.launcher;
+
+import javax.imageio.ImageIO;
+import javax.swing.*;
+import java.awt.*;
+import java.awt.image.BufferedImage;
+import java.io.*;
+import java.net.HttpURLConnection;
+import java.net.URL;
+import java.nio.file.*;
+import java.util.Properties;
+import java.util.zip.*;
+
+/**
+ * RuneCartel's HQ Game Launcher
+ * Self-contained launcher that embeds client and cache.
+ * Checks GitHub for updates, downloads if newer, falls back to embedded resources.
+ */
+public class Launcher extends JFrame {
+    
+    // Embedded version - INCREMENT THESE when you update the embedded cache/client
+    private static final int CACHE_VERSION = 1;
+    private static final int CLIENT_VERSION = 2;
+    
+    // ========== CHANGE THIS TO YOUR GITHUB REPO ==========
+    // Format: https://github.com/YOUR_USERNAME/YOUR_REPO/releases/download/latest/
+    private static final String REMOTE_BASE_URL = "https://github.com/RuneCartelHQ/updates/releases/download/latest/";
+    // =====================================================
+    
+    private static final String CLIENT_JAR = "RuneCartel.jar";
+    private static final String GAME_DIRECTORY = System.getProperty("user.home") + File.separator + ".runecartel";
+    private static final String CACHE_DIRECTORY = GAME_DIRECTORY + File.separator + "cache";
+    private static final String VERSION_FILE = "version.properties";
+    
+    // Embedded resource paths (inside the JAR)
+    private static final String EMBEDDED_CLIENT_ZIP = "/embedded/client.zip";
+    private static final String EMBEDDED_CACHE_ZIP = "/embedded/cache.zip";
+    
+    private JProgressBar progressBar;
+    private JLabel statusLabel;
+    private BufferedImage logoImage;
+
+    public Launcher() {
+        loadLogo();
+        initUI();
+        // Start installation/update process
+        new Thread(this::installAndLaunch).start();
+    }
+    
+    private void loadLogo() {
+        try {
+            InputStream is = getClass().getResourceAsStream("/logo.png");
+            if (is != null) {
+                logoImage = ImageIO.read(is);
+                is.close();
+            }
+        } catch (Exception e) {
+            System.out.println("Could not load logo: " + e.getMessage());
+        }
+    }
+
+    private void initUI() {
+        setTitle("RuneCartel's HQ");
+        setDefaultCloseOperation(JFrame.EXIT_ON_CLOSE);
+        setSize(450, 300);
+        setLocationRelativeTo(null);
+        setResizable(false);
+        
+        if (logoImage != null) {
+            setIconImage(logoImage);
+        }
+        
+        // Main panel with gradient background
+        JPanel mainPanel = new JPanel() {
+            @Override
+            protected void paintComponent(Graphics g) {
+                super.paintComponent(g);
+                Graphics2D g2d = (Graphics2D) g;
+                g2d.setRenderingHint(RenderingHints.KEY_RENDERING, RenderingHints.VALUE_RENDER_QUALITY);
+                GradientPaint gradient = new GradientPaint(0, 0, new Color(40, 15, 25), 
+                                                            0, getHeight(), new Color(15, 5, 10));
+                g2d.setPaint(gradient);
+                g2d.fillRect(0, 0, getWidth(), getHeight());
+            }
+        };
+        mainPanel.setLayout(new BorderLayout(10, 10));
+        mainPanel.setBorder(BorderFactory.createEmptyBorder(20, 30, 20, 30));
+        
+        // Top panel with logo and title
+        JPanel topPanel = new JPanel();
+        topPanel.setOpaque(false);
+        topPanel.setLayout(new BoxLayout(topPanel, BoxLayout.Y_AXIS));
+        
+        if (logoImage != null) {
+            int logoSize = 100;
+            Image scaledLogo = logoImage.getScaledInstance(logoSize, logoSize, Image.SCALE_SMOOTH);
+            JLabel logoLabel = new JLabel(new ImageIcon(scaledLogo));
+            logoLabel.setAlignmentX(Component.CENTER_ALIGNMENT);
+            topPanel.add(logoLabel);
+            topPanel.add(Box.createVerticalStrut(10));
+        }
+        
+        JLabel titleLabel = new JLabel("RuneCartel's HQ", SwingConstants.CENTER);
+        titleLabel.setFont(new Font("Arial", Font.BOLD, 24));
+        titleLabel.setForeground(new Color(255, 215, 0));
+        titleLabel.setAlignmentX(Component.CENTER_ALIGNMENT);
+        topPanel.add(titleLabel);
+        
+        mainPanel.add(topPanel, BorderLayout.NORTH);
+        
+        // Center panel with status and progress
+        JPanel centerPanel = new JPanel();
+        centerPanel.setOpaque(false);
+        centerPanel.setLayout(new BoxLayout(centerPanel, BoxLayout.Y_AXIS));
+        
+        centerPanel.add(Box.createVerticalStrut(20));
+        
+        statusLabel = new JLabel("Initializing...", SwingConstants.CENTER);
+        statusLabel.setFont(new Font("Arial", Font.PLAIN, 14));
+        statusLabel.setForeground(Color.WHITE);
+        statusLabel.setAlignmentX(Component.CENTER_ALIGNMENT);
+        centerPanel.add(statusLabel);
+        
+        centerPanel.add(Box.createVerticalStrut(15));
+        
+        progressBar = new JProgressBar(0, 100);
+        progressBar.setStringPainted(true);
+        progressBar.setPreferredSize(new Dimension(350, 25));
+        progressBar.setMaximumSize(new Dimension(350, 25));
+        progressBar.setAlignmentX(Component.CENTER_ALIGNMENT);
+        progressBar.setForeground(new Color(0, 150, 0));
+        centerPanel.add(progressBar);
+        
+        mainPanel.add(centerPanel, BorderLayout.CENTER);
+        
+        // Version label
+        JLabel versionLabel = new JLabel("v" + CLIENT_VERSION + "." + CACHE_VERSION, SwingConstants.CENTER);
+        versionLabel.setFont(new Font("Arial", Font.PLAIN, 10));
+        versionLabel.setForeground(new Color(100, 100, 100));
+        mainPanel.add(versionLabel, BorderLayout.SOUTH);
+        
+        add(mainPanel);
+    }
+    
+    private void installAndLaunch() {
+        try {
+            // Create directories
+            Files.createDirectories(Paths.get(GAME_DIRECTORY));
+            Files.createDirectories(Paths.get(CACHE_DIRECTORY));
+            
+            // Load local version info
+            int localClientVersion = 0;
+            int localCacheVersion = 0;
+            File versionFile = new File(GAME_DIRECTORY + File.separator + VERSION_FILE);
+            
+            if (versionFile.exists()) {
+                try (FileInputStream fis = new FileInputStream(versionFile)) {
+                    Properties props = new Properties();
+                    props.load(fis);
+                    localClientVersion = Integer.parseInt(props.getProperty("client.version", "0"));
+                    localCacheVersion = Integer.parseInt(props.getProperty("cache.version", "0"));
+                } catch (Exception e) {
+                    // Reset versions if file is corrupted
+                }
+            }
+            
+            // Check for remote updates first
+            int remoteClientVersion = -1;
+            int remoteCacheVersion = -1;
+            
+            updateStatus("Checking for updates...");
+            setProgress(5);
+            
+            Properties remoteProps = fetchRemoteVersions();
+            if (remoteProps != null) {
+                remoteClientVersion = Integer.parseInt(remoteProps.getProperty("client.version", "-1"));
+                remoteCacheVersion = Integer.parseInt(remoteProps.getProperty("cache.version", "-1"));
+                System.out.println("Remote versions - client: " + remoteClientVersion + ", cache: " + remoteCacheVersion);
+                System.out.println("Local versions  - client: " + localClientVersion + ", cache: " + localCacheVersion);
+            } else {
+                System.out.println("Could not fetch remote versions, using embedded resources as fallback.");
+            }
+            
+            boolean needsClientUpdate = false;
+            boolean needsCacheUpdate = false;
+            boolean useRemote = false;
+            
+            File clientFile = new File(GAME_DIRECTORY + File.separator + CLIENT_JAR);
+            File cacheDir = new File(CACHE_DIRECTORY);
+            File[] cacheFiles = cacheDir.listFiles();
+            boolean cacheEmpty = (cacheFiles == null || cacheFiles.length < 5);
+            
+            // Determine update strategy
+            if (remoteClientVersion > 0 && remoteClientVersion > localClientVersion) {
+                needsClientUpdate = true;
+                useRemote = true;
+            } else if (!clientFile.exists()) {
+                needsClientUpdate = true;
+                // Use remote if available and newer than embedded, else embedded
+                useRemote = (remoteClientVersion > CLIENT_VERSION);
+            } else if (CLIENT_VERSION > localClientVersion) {
+                needsClientUpdate = true;
+                useRemote = false;
+            }
+            
+            if (remoteCacheVersion > 0 && remoteCacheVersion > localCacheVersion) {
+                needsCacheUpdate = true;
+                useRemote = true;
+            } else if (cacheEmpty) {
+                needsCacheUpdate = true;
+                // Use remote if available and newer than embedded, else embedded
+                if (remoteCacheVersion <= CACHE_VERSION) useRemote = false;
+            } else if (CACHE_VERSION > localCacheVersion) {
+                needsCacheUpdate = true;
+                useRemote = false;
+            }
+            
+            int effectiveClientVersion = CLIENT_VERSION;
+            int effectiveCacheVersion = CACHE_VERSION;
+            
+            // Update client if needed
+            if (needsClientUpdate) {
+                boolean downloaded = false;
+                
+                if (useRemote && remoteClientVersion > 0) {
+                    updateStatus("Downloading client update v" + remoteClientVersion + "...");
+                    setProgress(10);
+                    downloaded = downloadFile(REMOTE_BASE_URL + "client.zip", 
+                                             Paths.get(GAME_DIRECTORY, "client_update.zip"));
+                    
+                    if (downloaded) {
+                        updateStatus("Installing client update...");
+                        setProgress(30);
+                        extracted_client_from_local_zip(new File(GAME_DIRECTORY + File.separator + "client_update.zip"));
+                        new File(GAME_DIRECTORY + File.separator + "client_update.zip").delete();
+                        effectiveClientVersion = remoteClientVersion;
+                    }
+                }
+                
+                if (!downloaded) {
+                    // Fallback to embedded
+                    updateStatus("Installing client...");
+                    setProgress(10);
+                    if (extractClientFromZip()) {
+                        effectiveClientVersion = CLIENT_VERSION;
+                    } else {
+                        updateStatus("Error: Could not extract client!");
+                        return;
+                    }
+                }
+                setProgress(40);
+            }
+            
+            // Update cache if needed
+            if (needsCacheUpdate) {
+                boolean downloaded = false;
+                
+                // Delete old cache
+                updateStatus("Removing old cache...");
+                deleteDirectory(new File(CACHE_DIRECTORY));
+                Files.createDirectories(Paths.get(CACHE_DIRECTORY));
+                
+                if (useRemote && remoteCacheVersion > 0) {
+                    updateStatus("Downloading cache update v" + remoteCacheVersion + "...");
+                    setProgress(50);
+                    downloaded = downloadFile(REMOTE_BASE_URL + "cache.zip", 
+                                             Paths.get(GAME_DIRECTORY, "cache_update.zip"));
+                    
+                    if (downloaded) {
+                        updateStatus("Installing cache update...");
+                        setProgress(70);
+                        extractLocalZipToCache(new File(GAME_DIRECTORY + File.separator + "cache_update.zip"));
+                        new File(GAME_DIRECTORY + File.separator + "cache_update.zip").delete();
+                        effectiveCacheVersion = remoteCacheVersion;
+                    }
+                }
+                
+                if (!downloaded) {
+                    // Fallback to embedded
+                    updateStatus("Installing cache files...");
+                    setProgress(50);
+                    if (extractEmbeddedCache()) {
+                        effectiveCacheVersion = CACHE_VERSION;
+                    } else {
+                        updateStatus("Error: Could not extract cache!");
+                        return;
+                    }
+                }
+                setProgress(85);
+            }
+            
+            if (!needsClientUpdate && !needsCacheUpdate) {
+                updateStatus("Game is up to date!");
+                setProgress(90);
+            }
+            
+            // Save version info (use the highest version we got)
+            int finalClientVer = Math.max(effectiveClientVersion, localClientVersion);
+            int finalCacheVer = Math.max(effectiveCacheVersion, localCacheVersion);
+            saveVersionInfo(finalClientVer, finalCacheVer);
+            
+            setProgress(100);
+            updateStatus("Launching game...");
+            Thread.sleep(500);
+            
+            // Launch the game
+            launchGame();
+            
+        } catch (Exception e) {
+            e.printStackTrace();
+            updateStatus("Error: " + e.getMessage());
+        }
+    }
+    
+    /**
+     * Fetches remote version.properties from GitHub.
+     * Returns null if unavailable (no internet, repo not set up, etc.)
+     */
+    private Properties fetchRemoteVersions() {
+        try {
+            String url = REMOTE_BASE_URL + "version.properties";
+            HttpURLConnection conn = openConnection(url);
+            conn.setConnectTimeout(5000);
+            conn.setReadTimeout(5000);
+            
+            if (conn.getResponseCode() == 200) {
+                Properties props = new Properties();
+                try (InputStream is = conn.getInputStream()) {
+                    props.load(is);
+                }
+                conn.disconnect();
+                return props;
+            }
+            conn.disconnect();
+        } catch (Exception e) {
+            System.out.println("Could not check for updates: " + e.getMessage());
+        }
+        return null;
+    }
+    
+    /**
+     * Downloads a file from a URL, following redirects (GitHub uses 302s).
+     * Returns true if successful.
+     */
+    private boolean downloadFile(String urlStr, Path destPath) {
+        try {
+            HttpURLConnection conn = openConnection(urlStr);
+            conn.setConnectTimeout(15000);
+            conn.setReadTimeout(30000);
+            
+            int responseCode = conn.getResponseCode();
+            if (responseCode != 200) {
+                System.out.println("Download failed, HTTP " + responseCode + " for " + urlStr);
+                conn.disconnect();
+                return false;
+            }
+            
+            long totalSize = conn.getContentLengthLong();
+            
+            try (InputStream is = conn.getInputStream();
+                 FileOutputStream fos = new FileOutputStream(destPath.toFile())) {
+                byte[] buffer = new byte[8192];
+                long downloaded = 0;
+                int len;
+                while ((len = is.read(buffer)) > 0) {
+                    fos.write(buffer, 0, len);
+                    downloaded += len;
+                    if (totalSize > 0) {
+                        int percent = (int) ((downloaded * 100) / totalSize);
+                        // Update sub-progress within the current phase
+                        final int p = percent;
+                        SwingUtilities.invokeLater(() -> progressBar.setString(p + "%"));
+                    }
+                }
+            }
+            conn.disconnect();
+            System.out.println("Downloaded: " + destPath.getFileName());
+            return true;
+        } catch (Exception e) {
+            System.out.println("Download error: " + e.getMessage());
+            // Clean up partial download
+            try { Files.deleteIfExists(destPath); } catch (Exception ignored) {}
+            return false;
+        }
+    }
+    
+    /**
+     * Opens an HTTP connection, manually following up to 5 redirects.
+     * GitHub Releases redirect to CDN, and Java doesn't follow cross-protocol (http→https) redirects.
+     */
+    private HttpURLConnection openConnection(String urlStr) throws IOException {
+        int redirects = 0;
+        while (redirects < 5) {
+            URL url = new URL(urlStr);
+            HttpURLConnection conn = (HttpURLConnection) url.openConnection();
+            conn.setRequestProperty("User-Agent", "RuneCartel-Launcher");
+            conn.setInstanceFollowRedirects(false);
+            
+            int code = conn.getResponseCode();
+            if (code == HttpURLConnection.HTTP_MOVED_PERM || 
+                code == HttpURLConnection.HTTP_MOVED_TEMP ||
+                code == 307 || code == 308) {
+                String newUrl = conn.getHeaderField("Location");
+                conn.disconnect();
+                if (newUrl == null) throw new IOException("Redirect with no Location header");
+                urlStr = newUrl;
+                redirects++;
+            } else {
+                return conn;
+            }
+        }
+        throw new IOException("Too many redirects");
+    }
+    
+    /**
+     * Extracts a client JAR from a locally downloaded zip file.
+     */
+    private boolean extracted_client_from_local_zip(File zipFile) {
+        try (ZipInputStream zis = new ZipInputStream(new FileInputStream(zipFile))) {
+            ZipEntry entry;
+            while ((entry = zis.getNextEntry()) != null) {
+                if (entry.getName().endsWith(".jar")) {
+                    File destFile = new File(GAME_DIRECTORY + File.separator + CLIENT_JAR);
+                    try (FileOutputStream fos = new FileOutputStream(destFile)) {
+                        byte[] buffer = new byte[8192];
+                        int len;
+                        while ((len = zis.read(buffer)) > 0) {
+                            fos.write(buffer, 0, len);
+                        }
+                    }
+                    zis.closeEntry();
+                    return true;
+                }
+                zis.closeEntry();
+            }
+        } catch (Exception e) {
+            e.printStackTrace();
+        }
+        return false;
+    }
+    
+    /**
+     * Extracts a locally downloaded cache zip to the cache directory.
+     */
+    private boolean extractLocalZipToCache(File zipFile) {
+        try (ZipInputStream zis = new ZipInputStream(new FileInputStream(zipFile))) {
+            ZipEntry entry;
+            while ((entry = zis.getNextEntry()) != null) {
+                File newFile = new File(CACHE_DIRECTORY + File.separator + entry.getName());
+                if (entry.isDirectory()) {
+                    newFile.mkdirs();
+                } else {
+                    new File(newFile.getParent()).mkdirs();
+                    try (FileOutputStream fos = new FileOutputStream(newFile)) {
+                        byte[] buffer = new byte[8192];
+                        int len;
+                        while ((len = zis.read(buffer)) > 0) {
+                            fos.write(buffer, 0, len);
+                        }
+                    }
+                }
+                zis.closeEntry();
+            }
+            return true;
+        } catch (Exception e) {
+            e.printStackTrace();
+        }
+        return false;
+    }
+    
+    private boolean extractEmbeddedFile(String resourcePath, String destPath) {
+        try (InputStream is = getClass().getResourceAsStream(resourcePath)) {
+            if (is == null) {
+                System.out.println("Resource not found: " + resourcePath);
+                return false;
+            }
+            
+            Files.copy(is, Paths.get(destPath), StandardCopyOption.REPLACE_EXISTING);
+            return true;
+        } catch (Exception e) {
+            e.printStackTrace();
+            return false;
+        }
+    }
+    
+    private boolean extractClientFromZip() {
+        try (InputStream is = getClass().getResourceAsStream(EMBEDDED_CLIENT_ZIP)) {
+            if (is == null) {
+                System.out.println("Client zip not found in embedded resources");
+                return false;
+            }
+            
+            try (ZipInputStream zis = new ZipInputStream(is)) {
+                ZipEntry entry;
+                while ((entry = zis.getNextEntry()) != null) {
+                    if (entry.getName().endsWith(".jar")) {
+                        // Extract the JAR file
+                        File destFile = new File(GAME_DIRECTORY + File.separator + CLIENT_JAR);
+                        try (FileOutputStream fos = new FileOutputStream(destFile)) {
+                            byte[] buffer = new byte[8192];
+                            int len;
+                            while ((len = zis.read(buffer)) > 0) {
+                                fos.write(buffer, 0, len);
+                            }
+                        }
+                        zis.closeEntry();
+                        return true;
+                    }
+                    zis.closeEntry();
+                }
+            }
+            return false;
+        } catch (Exception e) {
+            e.printStackTrace();
+            return false;
+        }
+    }
+    
+    private boolean extractEmbeddedCache() {
+        try (InputStream is = getClass().getResourceAsStream(EMBEDDED_CACHE_ZIP)) {
+            if (is == null) {
+                System.out.println("Embedded cache.zip not found, trying individual files...");
+                return extractIndividualCacheFiles();
+            }
+            
+            // Extract zip to cache directory
+            try (ZipInputStream zis = new ZipInputStream(is)) {
+                ZipEntry entry;
+                while ((entry = zis.getNextEntry()) != null) {
+                    File newFile = new File(CACHE_DIRECTORY + File.separator + entry.getName());
+                    
+                    if (entry.isDirectory()) {
+                        newFile.mkdirs();
+                    } else {
+                        new File(newFile.getParent()).mkdirs();
+                        try (FileOutputStream fos = new FileOutputStream(newFile)) {
+                            byte[] buffer = new byte[8192];
+                            int len;
+                            while ((len = zis.read(buffer)) > 0) {
+                                fos.write(buffer, 0, len);
+                            }
+                        }
+                    }
+                    zis.closeEntry();
+                }
+            }
+            return true;
+        } catch (Exception e) {
+            e.printStackTrace();
+            return extractIndividualCacheFiles();
+        }
+    }
+    
+    private boolean extractIndividualCacheFiles() {
+        String[] cacheFileNames = {
+            "main_file_cache.dat",
+            "main_file_cache.idx0",
+            "main_file_cache.idx1",
+            "main_file_cache.idx2",
+            "main_file_cache.idx3",
+            "main_file_cache.idx4",
+            "main_file_cache.idx5",
+            "main_file_sprites.dat",
+            "main_file_sprites.idx"
+        };
+        
+        boolean anyExtracted = false;
+        for (String fileName : cacheFileNames) {
+            String resourcePath = "/embedded/cache/" + fileName;
+            try (InputStream is = getClass().getResourceAsStream(resourcePath)) {
+                if (is != null) {
+                    Files.copy(is, Paths.get(CACHE_DIRECTORY + File.separator + fileName), 
+                              StandardCopyOption.REPLACE_EXISTING);
+                    anyExtracted = true;
+                }
+            } catch (Exception e) {
+                // Continue with next file
+            }
+        }
+        
+        return anyExtracted;
+    }
+    
+    private void deleteDirectory(File dir) {
+        if (dir.exists()) {
+            File[] files = dir.listFiles();
+            if (files != null) {
+                for (File file : files) {
+                    if (file.isDirectory()) {
+                        deleteDirectory(file);
+                    } else {
+                        file.delete();
+                    }
+                }
+            }
+            dir.delete();
+        }
+    }
+    
+    private void saveVersionInfo(int clientVersion, int cacheVersion) {
+        try {
+            Properties props = new Properties();
+            props.setProperty("client.version", String.valueOf(clientVersion));
+            props.setProperty("cache.version", String.valueOf(cacheVersion));
+            
+            File versionFile = new File(GAME_DIRECTORY + File.separator + VERSION_FILE);
+            try (FileOutputStream fos = new FileOutputStream(versionFile)) {
+                props.store(fos, "RuneCartel's HQ Version Info");
+            }
+        } catch (Exception e) {
+            e.printStackTrace();
+        }
+    }
+    
+    private void launchGame() {
+        try {
+            String clientPath = GAME_DIRECTORY + File.separator + CLIENT_JAR;
+            
+            ProcessBuilder pb = new ProcessBuilder(
+                "java",
+                "-Xmx1024m",
+                "-Xms512m",
+                "-jar",
+                clientPath
+            );
+            
+            pb.directory(new File(GAME_DIRECTORY));
+            pb.start();
+            
+            // Close launcher
+            Thread.sleep(1000);
+            System.exit(0);
+            
+        } catch (Exception e) {
+            e.printStackTrace();
+            updateStatus("Error launching: " + e.getMessage());
+        }
+    }
+    
+    private void updateStatus(String message) {
+        SwingUtilities.invokeLater(() -> statusLabel.setText(message));
+    }
+    
+    private void setProgress(int value) {
+        SwingUtilities.invokeLater(() -> progressBar.setValue(value));
+    }
+    
+    public static void main(String[] args) {
+        try {
+            UIManager.setLookAndFeel(UIManager.getSystemLookAndFeelClassName());
+        } catch (Exception e) {
+            // Use default
+        }
+        
+        SwingUtilities.invokeLater(() -> {
+            Launcher launcher = new Launcher();
+            launcher.setVisible(true);
+        });
+    }
+}
+
