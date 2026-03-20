@@ -27,6 +27,9 @@ public class Launcher extends JFrame {
     private static final int CACHE_VERSION = 4;
     private static final int CLIENT_VERSION = 10;
 
+    // Launcher version - INCREMENT THIS when you update the launcher itself
+    private static final int LAUNCHER_VERSION = 1;
+
     // ========== CHANGE THIS TO YOUR GITHUB REPO ==========
     // Format: https://github.com/YOUR_USERNAME/YOUR_REPO/releases/download/latest/
     private static final String REMOTE_BASE_URL = "https://github.com/tristan9988/runecartel-updates/releases/download/latest/";
@@ -174,10 +177,29 @@ public class Launcher extends JFrame {
             // Check for remote updates first
             int remoteClientVersion = -1;
             int remoteCacheVersion = -1;
-            
+            int remoteLauncherVersion = -1;
+
             updateStatus("Checking for updates...");
             setProgress(5);
             
+            // Check for launcher self-update FIRST
+            if (USE_REMOTE_UPDATES) {
+                Properties remoteProps = fetchRemoteVersions();
+                if (remoteProps != null) {
+                    remoteLauncherVersion = Integer.parseInt(remoteProps.getProperty("launcher.version", "-1"));
+                    if (remoteLauncherVersion > LAUNCHER_VERSION) {
+                        updateStatus("Updating launcher to v" + remoteLauncherVersion + "...");
+                        setProgress(10);
+                        if (downloadAndReplaceLauncher()) {
+                            updateStatus("Launcher updated! Restarting...");
+                            Thread.sleep(1000);
+                            restartLauncher();
+                            return;
+                        }
+                    }
+                }
+            }
+
             Properties remoteProps = USE_REMOTE_UPDATES ? fetchRemoteVersions() : null;
             if (remoteProps != null) {
                 remoteClientVersion = Integer.parseInt(remoteProps.getProperty("client.version", "-1"));
@@ -602,6 +624,99 @@ public class Launcher extends JFrame {
             }
             dir.delete();
         }
+    }
+    
+    /**
+     * Downloads the new launcher JAR and replaces the current one.
+     * Returns true if successful.
+     */
+    private boolean downloadAndReplaceLauncher() {
+        try {
+            // Download to temp location
+            Path tempLauncher = Paths.get(GAME_DIRECTORY, "launcher_update.jar");
+            if (!downloadFile(REMOTE_BASE_URL + "RuneCartel-Launcher.jar", tempLauncher)) {
+                System.out.println("Failed to download launcher update");
+                return false;
+            }
+            
+            // Get current launcher JAR path
+            String currentJarPath = getCurrentJarPath();
+            if (currentJarPath == null) {
+                System.out.println("Could not determine current launcher path");
+                return false;
+            }
+            
+            // Create update script that will replace the JAR after we exit
+            createUpdateScript(tempLauncher.toString(), currentJarPath);
+            
+            return true;
+        } catch (Exception e) {
+            System.out.println("Launcher update error: " + e.getMessage());
+            e.printStackTrace();
+            return false;
+        }
+    }
+    
+    /**
+     * Gets the path of the currently running JAR file.
+     */
+    private String getCurrentJarPath() {
+        try {
+            return new File(Launcher.class.getProtectionDomain().getCodeSource().getLocation().toURI()).getAbsolutePath();
+        } catch (Exception e) {
+            return null;
+        }
+    }
+    
+    /**
+     * Creates a script to replace the launcher and runs it, then restarts.
+     */
+    private void createUpdateScript(String newLauncherPath, String currentLauncherPath) {
+        try {
+            String os = System.getProperty("os.name").toLowerCase();
+            File scriptFile;
+            ProcessBuilder pb;
+            
+            if (os.contains("win")) {
+                // Windows batch script
+                scriptFile = new File(GAME_DIRECTORY + File.separator + "update_launcher.bat");
+                String script = "@echo off\r\n" +
+                    "timeout /t 2 /nobreak > nul\r\n" +
+                    "copy /Y \"" + newLauncherPath + "\" \"" + currentLauncherPath + "\"\r\n" +
+                    "del \"" + newLauncherPath + "\"\r\n" +
+                    "start \"\" \"" + currentLauncherPath + "\"\r\n" +
+                    "del \"%~f0\"\r\n";
+                Files.write(scriptFile.toPath(), script.getBytes(StandardCharsets.UTF_8));
+                
+                pb = new ProcessBuilder("cmd", "/c", scriptFile.getAbsolutePath());
+            } else {
+                // Unix shell script
+                scriptFile = new File(GAME_DIRECTORY + File.separator + "update_launcher.sh");
+                String script = "#!/bin/bash\n" +
+                    "sleep 2\n" +
+                    "cp -f \"" + newLauncherPath + "\" \"" + currentLauncherPath + "\"\n" +
+                    "rm \"" + newLauncherPath + "\"\n" +
+                    "java -jar \"" + currentLauncherPath + "\" &\n" +
+                    "rm \"$0\"\n";
+                Files.write(scriptFile.toPath(), script.getBytes(StandardCharsets.UTF_8));
+                scriptFile.setExecutable(true);
+                
+                pb = new ProcessBuilder("bash", scriptFile.getAbsolutePath());
+            }
+            
+            pb.directory(new File(GAME_DIRECTORY));
+            pb.start();
+        } catch (Exception e) {
+            System.out.println("Could not create update script: " + e.getMessage());
+            e.printStackTrace();
+        }
+    }
+    
+    /**
+     * Restarts the launcher by exiting - the update script will handle the restart.
+     */
+    private void restartLauncher() {
+        System.exit(0);
     }
     
     private void saveVersionInfo(int clientVersion, int cacheVersion) {
