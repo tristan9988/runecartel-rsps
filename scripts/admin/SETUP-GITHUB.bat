@@ -1,6 +1,7 @@
 @echo off
 setlocal
-cd /d "%~dp0"
+set "ROOT=%~dp0..\.."
+cd /d "%ROOT%"
 set PATH=%PATH%;C:\Program Files\GitHub CLI
 
 echo ============================================
@@ -45,5 +46,5 @@ if errorlevel 1 (
 
 echo.
 echo Publishing the initial full release assets...
-powershell -ExecutionPolicy Bypass -File "%~dp0publish-release.ps1" -Mode All -SkipStartServer -SkipPush
+powershell -ExecutionPolicy Bypass -File "%ROOT%\publish-release.ps1" -Mode All -SkipStartServer -SkipPush
 exit /b %ERRORLEVEL%

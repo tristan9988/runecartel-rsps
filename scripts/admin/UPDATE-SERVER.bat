@@ -1,5 +1,7 @@
 @echo off
 title RuneCartel's HQ - Update Server
+setlocal
+set "ROOT=%~dp0..\.."
 echo ============================================
 echo       RuneCartel's HQ Server Updater
 echo ============================================
@@ -15,7 +17,7 @@ echo.
 
 :: Rebuild
 echo [2/3] Compiling server...
-cd /d "%~dp0Tarnish\tarnish-game"
+cd /d "%ROOT%\Tarnish\tarnish-game"
 call gradlew.bat shadowJar
 if %ERRORLEVEL% NEQ 0 (
     echo.
