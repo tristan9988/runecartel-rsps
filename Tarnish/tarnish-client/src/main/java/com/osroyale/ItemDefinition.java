@@ -45,6 +45,17 @@ public final class ItemDefinition implements RSItemComposition {
         /* Customs added here? */
 
         switch (i) {
+            case 21284:
+            case 21285:
+            case 21295:
+            case 21297:
+            case 23622:
+            case 24224:
+                if (itemDef.retextureFrom == null || itemDef.retextureFrom.length == 0) {
+                    itemDef.retextureFrom = new short[]{40};
+                    itemDef.retextureTo = new short[]{59};
+                }
+                break;
             case 2399://keepsake key - originally silverlight key
                 itemDef.name = "Keepsake key";
                 itemDef.itemActions = new String[]{null, null, null, null, "Drop"};
@@ -883,7 +894,7 @@ public final class ItemDefinition implements RSItemComposition {
         }
         if (retextureFrom != null) {
             for (int i1 = 0; i1 < retextureFrom.length; i1++)
-                firstModel.recolor(retextureFrom[i1], recolorTo[i1]);
+                firstModel.retexture(retextureFrom[i1], retextureTo[i1]);
 
         }
         return firstModel;
@@ -939,6 +950,10 @@ public final class ItemDefinition implements RSItemComposition {
             for (int i1 = 0; i1 < recolorFrom.length; i1++)
                 model.recolor(recolorFrom[i1], recolorTo[i1]);
         }
+        if (retextureFrom != null) {
+            for (int i1 = 0; i1 < retextureFrom.length; i1++)
+                model.retexture(retextureFrom[i1], retextureTo[i1]);
+        }
         return model;
     }
 
@@ -975,12 +990,15 @@ public final class ItemDefinition implements RSItemComposition {
         stackAmounts = null;
         certID = -1;
         certTemplateID = -1;
+        placeholderId = -1;
+        placeholderTemplateId = -1;
         resizeX = 128;
         resizeY = 128;
         resizeZ = 128;
         brightness = 0;
         contrast = 0;
         team = 0;
+        tradeable = false;
     }
 
     private void toNote() {
@@ -995,6 +1013,8 @@ public final class ItemDefinition implements RSItemComposition {
         modelOffset2 = noted.modelOffset2;
         recolorTo = noted.recolorTo;
         recolorFrom = noted.recolorFrom;
+        retextureTo = noted.retextureTo;
+        retextureFrom = noted.retextureFrom;
         ItemDefinition unnoted = lookup(certID);
         name = unnoted.name;
         membersObject = unnoted.membersObject;
@@ -1358,7 +1378,7 @@ public final class ItemDefinition implements RSItemComposition {
             } else if (opcode == 42) {
                 buffer.readSignedByte(); // shiftClickDropIndex
             } else if (opcode == 65) {
-                // isTradeable = true
+                tradeable = true;
             } else if (opcode == 75) {
                 buffer.readShort(); // weight
             } else if (opcode == 78)
@@ -1405,9 +1425,9 @@ public final class ItemDefinition implements RSItemComposition {
             else if (opcode == 140)
                 buffer.readUnsignedShort(); // boughtTemplateId
             else if (opcode == 148)
-                buffer.readUnsignedShort(); // placeholderId
+                placeholderId = buffer.readUnsignedShort();
             else if (opcode == 149)
-                buffer.readUnsignedShort(); // placeholderTemplateId
+                placeholderTemplateId = buffer.readUnsignedShort();
             else if (opcode == 249) {
                 int length = buffer.readUnsignedByte();
                 for (int i = 0; i < length; i++) {
@@ -1466,8 +1486,11 @@ public final class ItemDefinition implements RSItemComposition {
     private int resizeY;
     private int resizeX;
     private int femaleHeadModel2;
+    private int placeholderId;
+    private int placeholderTemplateId;
     private int shiftDrop;
     private boolean stockMarket;
+    private boolean tradeable;
     private static int cacheIndex;
     private static int[] offsets;
     public boolean stackable;// itemStackable
@@ -1484,7 +1507,7 @@ public final class ItemDefinition implements RSItemComposition {
 
     @Override
     public int getHaPrice() {
-        return 0;
+        return value / 2;
     }
 
     @Override
@@ -1529,7 +1552,7 @@ public final class ItemDefinition implements RSItemComposition {
 
     @Override
     public void setName(String name) {
-
+        this.name = name;
     }
 
     @Override
@@ -1539,22 +1562,22 @@ public final class ItemDefinition implements RSItemComposition {
 
     @Override
     public int getNote() {
-        return 0;
+        return certTemplateID;
     }
 
     @Override
     public int getLinkedNoteId() {
-        return 0;
+        return certID;
     }
 
     @Override
     public int getPlaceholderId() {
-        return 0;
+        return placeholderId;
     }
 
     @Override
     public int getPlaceholderTemplateId() {
-        return 0;
+        return placeholderTemplateId;
     }
 
     @Override
@@ -1569,12 +1592,12 @@ public final class ItemDefinition implements RSItemComposition {
 
     @Override
     public boolean isTradeable() {
-        return false;
+        return tradeable;
     }
 
     @Override
     public void setTradeable(boolean yes) {
-
+        tradeable = yes;
     }
 
     @Override
@@ -1584,7 +1607,7 @@ public final class ItemDefinition implements RSItemComposition {
 
     @Override
     public int getMaleModel() {
-        return 0;
+        return maleWield;
     }
 
     @Override
@@ -1604,22 +1627,22 @@ public final class ItemDefinition implements RSItemComposition {
 
     @Override
     public RSModel getModel(int quantity) {
-        return null;
+        return method201(quantity);
     }
 
     @Override
     public int getInventoryModel() {
-        return 0;
+        return inventoryModel;
     }
 
     @Override
     public short[] getColorToReplaceWith() {
-        return new short[0];
+        return recolorTo;
     }
 
     @Override
     public short[] getTextureToReplaceWith() {
-        return new short[0];
+        return retextureTo;
     }
 
     @Override

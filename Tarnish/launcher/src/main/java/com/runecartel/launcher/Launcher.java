@@ -795,7 +795,6 @@ public class Launcher extends JFrame {
         List<String> command = new ArrayList<>();
         command.add(javaExecutable);
         command.add("-XX:-OmitStackTraceInFastThrow");
-        command.add("-Drunecartel.lite=true");
         // Java2D hardware acceleration - critical for canvas blit performance
         command.add("-Dsun.java2d.d3d=true");
         command.add("-Dsun.java2d.noddraw=false");
@@ -807,7 +806,6 @@ public class Launcher extends JFrame {
         command.add("-Xms" + launchProfile.initialHeapMb + "m");
         command.add("-jar");
         command.add(clientPath);
-        command.add("--safe-mode");
         return command;
     }
 
@@ -852,7 +850,7 @@ public class Launcher extends JFrame {
         } else if (freePhysicalMemoryMb >= 3584L) {
             heapMb = 1024;
         } else if (freePhysicalMemoryMb >= 2560L) {
-            heapMb = 768;
+            heapMb = 1024;
         } else {
             heapMb = 512;
         }
@@ -862,9 +860,9 @@ public class Launcher extends JFrame {
 
     private LaunchProfile createLaunchProfile(int heapMb) {
         int initialHeapMb = Math.min(512, Math.max(256, heapMb / 2));
-        int modelCacheMb = heapMb >= 1024 ? 384 : heapMb >= 768 ? 256 : 192;
-        int gpuDrawDistance = heapMb >= 1024 ? 10 : 8;
-        int hdDrawDistance = heapMb >= 1024 ? 12 : 10;
+        int modelCacheMb = heapMb >= 1536 ? 512 : heapMb >= 1024 ? 384 : heapMb >= 768 ? 256 : 192;
+        int gpuDrawDistance = heapMb >= 1536 ? 18 : heapMb >= 1024 ? 16 : 12;
+        int hdDrawDistance = heapMb >= 1536 ? 22 : heapMb >= 1024 ? 18 : 14;
         return new LaunchProfile(heapMb, initialHeapMb, modelCacheMb, gpuDrawDistance, hdDrawDistance);
     }
 
@@ -924,46 +922,83 @@ public class Launcher extends JFrame {
             }
         }
 
+        boolean legacyForcedSoftwareProfile = "false".equalsIgnoreCase(props.getProperty("runelite.hdplugin"))
+            && "false".equalsIgnoreCase(props.getProperty("runelite.gpuplugin"));
+
+        if (legacyForcedSoftwareProfile) {
+            // Migrate older launcher installs out of the forced software profile.
+            props.setProperty("runelite.hdplugin", "true");
+            props.setProperty("runelite.gpuplugin", "false");
+            props.setProperty("hd.shadowMode", "OFF");
+            props.setProperty("hd.antiAliasingMode", "DISABLED");
+            props.setProperty("hd.maxDynamicLights", "NONE");
+            props.setProperty("hd.normalMapping", "true");
+            props.setProperty("hd.parallaxOcclusionMappingToggle", "false");
+            props.setProperty("hd.environmentalLighting", "true");
+            props.setProperty("hd.projectileLights", "true");
+            props.setProperty("hd.npcLights", "true");
+            props.setProperty("hd.groundFog", "false");
+            props.setProperty("hd.underwaterCaustics", "true");
+        }
+
+        props.setProperty("runelite.hdplugin", "true");
         props.setProperty("runelite.gpuplugin", "false");
-        props.setProperty("runelite.hdplugin", "false");
+
         props.setProperty("gpu.useComputeShaders", "false");
         props.setProperty("gpu.drawDistance", String.valueOf(launchProfile.gpuDrawDistance));
         props.setProperty("gpu.antiAliasingMode", "DISABLED");
-        props.setProperty("gpu.anisotropicFilteringLevel", "0");
+        props.setProperty("gpu.anisotropicFilteringLevel", "4");
         props.setProperty("gpu.vsyncMode", "OFF");
-        props.setProperty("gpu.fpsTarget", "50");
-        props.setProperty("fpscontrol.limitFps", "true");
-        props.setProperty("fpscontrol.maxFps", "50");
+        props.setProperty("gpu.unlockFps", "true");
+        props.setProperty("gpu.fpsTarget", "90");
+
+        props.setProperty("fpscontrol.limitFps", "false");
+        props.setProperty("fpscontrol.maxFps", "90");
+        props.setProperty("fpscontrol.drawFps", "false");
         props.setProperty("stretchedmode.increasedPerformance", "true");
         props.setProperty("animationSmoothing.smoothPlayerAnimations", "false");
         props.setProperty("animationSmoothing.smoothNpcAnimations", "false");
         props.setProperty("animationSmoothing.smoothGraphicAnimations", "false");
         props.setProperty("animationSmoothing.smoothObjectAnimations", "false");
+
         props.setProperty("hd.drawDistance", String.valueOf(launchProfile.hdDrawDistance));
         props.setProperty("hd.shadowMode", "OFF");
         props.setProperty("hd.shadowResolution", "RES_1024");
         props.setProperty("hd.shadowDistance", "DISTANCE_20");
         props.setProperty("hd.antiAliasingMode", "DISABLED");
+        props.setProperty("hd.anisotropicFilteringLevel", "4");
+        props.setProperty("hd.unlockFps", "true");
+        props.setProperty("hd.vsyncMode", "OFF");
+        props.setProperty("hd.fpsTarget", "90");
         props.setProperty("hd.maxDynamicLights", "NONE");
-        props.setProperty("hd.normalMapping", "false");
+        props.setProperty("hd.normalMapping", "true");
         props.setProperty("hd.parallaxOcclusionMappingToggle", "false");
-        props.setProperty("hd.environmentalLighting", "false");
-        props.setProperty("hd.projectileLights", "false");
-        props.setProperty("hd.npcLights", "false");
+        props.setProperty("hd.environmentalLighting", "true");
+        props.setProperty("hd.projectileLights", "true");
+        props.setProperty("hd.npcLights", "true");
         props.setProperty("hd.groundFog", "false");
-        props.setProperty("hd.underwaterCaustics", "false");
-        props.setProperty("hd.anisotropicFilteringLevel", "0");
+        props.setProperty("hd.underwaterCaustics", "true");
+        props.setProperty("hd.objectTextures", "true");
+        props.setProperty("hd.groundTextures", "true");
+        props.setProperty("hd.textureResolution", "RES_256");
+        props.setProperty("hd.hdInfernalTexture", "true");
         props.setProperty("hd.useModelCaching", "true");
-        props.setProperty("hd.modelCacheSizeMiB", String.valueOf(launchProfile.modelCacheMb));
-        props.setProperty("hd.modelCacheSizeMiBv2", String.valueOf(Math.min(256, launchProfile.modelCacheMb)));
+        props.setProperty("hd.modelCacheSizeMiB", String.valueOf(launchProfile.modelCacheMb * 4));
+        props.setProperty("hd.modelCacheSizeMiBv2", String.valueOf(launchProfile.modelCacheMb));
+
         props.setProperty("entityhider.hidePlayers", "false");
         props.setProperty("entityhider.hidePlayers2D", "false");
-        props.setProperty("fpscontrol.drawFps", "false");
 
         try (FileOutputStream fos = new FileOutputStream(settingsFile)) {
             props.store(fos, "RuneLite configuration");
         } catch (Exception e) {
             e.printStackTrace();
+        }
+    }
+
+    private void setIfMissing(Properties props, String key, String value) {
+        if (!props.containsKey(key)) {
+            props.setProperty(key, value);
         }
     }
 

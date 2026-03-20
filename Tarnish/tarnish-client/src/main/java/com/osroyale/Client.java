@@ -7538,17 +7538,11 @@ public class Client extends GameEngine implements SwiftFUP, FileStore, AutoProce
     private static final boolean FORCE_LITE_MODE = Boolean.getBoolean("runecartel.lite");
 
     private static void setHighMem() {
-        // Note: SceneGraph.lowMem affects floor tile texture rendering
-        // When true, uses fast solid-color rendering for floor tiles
-        // When false, uses slow per-pixel textured floor tile rendering
-        // For software rendering (no GPU), we keep SceneGraph.lowMem = true
-        // because textured floor rendering is extremely expensive (the main FPS killer)
-        // GPU plugins handle floor textures themselves so this doesn't affect them
-        SceneGraph.lowMem = true; // CRITICAL: Keep true to avoid massive FPS drops from textured floor tiles
-        lowMem = false; // Other lowMem flags can stay false for model quality
+        SceneGraph.lowMem = false;
+        lowMem = false;
         MapRegion.lowMem = false;
         ObjectDefinition.lowMem = false;
-        Rasterizer3D.lowMem = false; // Model textures stay high quality
+        Rasterizer3D.lowMem = false;
     }
 
     private static void setLowMem() {
@@ -19277,10 +19271,10 @@ public class Client extends GameEngine implements SwiftFUP, FileStore, AutoProce
         Model.cursorCalculations();
         Rasterizer2D.reset();
 
-        // Apply conservative zoom limits for software rendering to prevent FPS drops.
+        // Apply conservative zoom limits for software rendering to prevent extreme FPS drops.
         if (!isGpu()) {
             int minZoom = !isResized() ? 450 : 500;
-            int maxZoom = !isResized() ? 700 : 850;
+            int maxZoom = !isResized() ? 800 : 950;
             if (clientZoom < minZoom) clientZoom = minZoom;
             if (clientZoom > maxZoom) clientZoom = maxZoom;
         }

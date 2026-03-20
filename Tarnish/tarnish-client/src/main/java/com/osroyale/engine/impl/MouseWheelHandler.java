@@ -61,7 +61,7 @@ public class MouseWheelHandler implements MouseWheelListener, RSMouseWheelHandle
                 
                 // Limit zoom more aggressively for software rendering
                 int minZoom = isGpu ? (fixed ? 180 : 240) : (fixed ? 450 : 500);
-                int maxZoom = isGpu ? (fixed ? 1100 : 2200) : (fixed ? 700 : 850);
+                int maxZoom = isGpu ? (fixed ? 1350 : 2600) : (fixed ? 800 : 950);
                 if (Client.clientZoom > maxZoom) {
                     Client.clientZoom = maxZoom;
                 } else if (Client.clientZoom < minZoom) {
