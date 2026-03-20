@@ -22,13 +22,14 @@ import java.util.zip.*;
  * Checks GitHub for updates, downloads if newer, falls back to embedded resources.
  */
 public class Launcher extends JFrame {
-    
-    // Embedded version - INCREMENT THESE when you update the embedded cache/client
-    private static final int CACHE_VERSION = 4;
-    private static final int CLIENT_VERSION = 10;
 
-    // Launcher version - INCREMENT THIS when you update the launcher itself
-    private static final int LAUNCHER_VERSION = 1;
+    private static final EmbeddedVersions EMBEDDED_VERSIONS = loadEmbeddedVersions();
+
+    // Embedded versions are sourced from /embedded/version.properties so the build/publish
+    // pipeline can keep launcher fallbacks in sync automatically.
+    private static final int CACHE_VERSION = EMBEDDED_VERSIONS.cacheVersion;
+    private static final int CLIENT_VERSION = EMBEDDED_VERSIONS.clientVersion;
+    private static final int LAUNCHER_VERSION = EMBEDDED_VERSIONS.launcherVersion;
 
     // ========== CHANGE THIS TO YOUR GITHUB REPO ==========
     // Format: https://github.com/YOUR_USERNAME/YOUR_REPO/releases/download/latest/
@@ -45,6 +46,7 @@ public class Launcher extends JFrame {
     // Embedded resource paths (inside the JAR)
     private static final String EMBEDDED_CLIENT_ZIP = "/embedded/client.zip";
     private static final String EMBEDDED_CACHE_ZIP = "/embedded/cache.zip";
+    private static final String EMBEDDED_VERSION_FILE = "/embedded/version.properties";
     
     private JProgressBar progressBar;
     private JLabel statusLabel;
@@ -724,6 +726,7 @@ public class Launcher extends JFrame {
             Properties props = new Properties();
             props.setProperty("client.version", String.valueOf(clientVersion));
             props.setProperty("cache.version", String.valueOf(cacheVersion));
+            props.setProperty("launcher.version", String.valueOf(LAUNCHER_VERSION));
             
             File versionFile = new File(GAME_DIRECTORY + File.separator + VERSION_FILE);
             try (FileOutputStream fos = new FileOutputStream(versionFile)) {
@@ -990,6 +993,43 @@ public class Launcher extends JFrame {
         @Override
         public String toString() {
             return "Xmx=" + maxHeapMb + "m, Xms=" + initialHeapMb + "m, modelCache=" + modelCacheMb + "m, gpuDrawDistance=" + gpuDrawDistance + ", hdDrawDistance=" + hdDrawDistance;
+        }
+    }
+
+    private static EmbeddedVersions loadEmbeddedVersions() {
+        Properties props = new Properties();
+        try (InputStream is = Launcher.class.getResourceAsStream(EMBEDDED_VERSION_FILE)) {
+            if (is != null) {
+                props.load(is);
+            }
+        } catch (Exception e) {
+            System.out.println("Could not load embedded version.properties: " + e.getMessage());
+        }
+
+        return new EmbeddedVersions(
+                parseEmbeddedVersion(props, "client.version", 11),
+                parseEmbeddedVersion(props, "cache.version", 4),
+                parseEmbeddedVersion(props, "launcher.version", 1)
+        );
+    }
+
+    private static int parseEmbeddedVersion(Properties props, String key, int fallback) {
+        try {
+            return Integer.parseInt(props.getProperty(key, String.valueOf(fallback)));
+        } catch (NumberFormatException e) {
+            return fallback;
+        }
+    }
+
+    private static final class EmbeddedVersions {
+        private final int clientVersion;
+        private final int cacheVersion;
+        private final int launcherVersion;
+
+        private EmbeddedVersions(int clientVersion, int cacheVersion, int launcherVersion) {
+            this.clientVersion = clientVersion;
+            this.cacheVersion = cacheVersion;
+            this.launcherVersion = launcherVersion;
         }
     }
     

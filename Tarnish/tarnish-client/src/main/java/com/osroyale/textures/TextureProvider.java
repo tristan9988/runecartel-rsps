@@ -47,10 +47,34 @@ public class TextureProvider implements RSTextureProvider, TextureLoader {
             if (id >= highestFileId) break;
         }
 
+        // Force key animated textures to have animation data if missing from cache
+        // Based on Material.java definitions:
+        // - Texture 31 = LAVA
+        // - Texture 40 = FIRE_CAPE
+        // - Texture 59 = INFERNAL_CAPE
+        forceTextureAnimation(31, 1, 1, "LAVA");  // direction 1 = vertical scroll
+        forceTextureAnimation(40, 1, 1, "FIRE_CAPE");
+        forceTextureAnimation(59, 1, 1, "INFERNAL_CAPE");
+
         setMaxSize(128);
         setSize(128);
 
         client.flushFileClient();
+    }
+
+    /**
+     * Force a texture to animate if it doesn't have animation data from cache.
+     */
+    private void forceTextureAnimation(int textureId, int direction, int speed, String name) {
+        if (textures.length > textureId && textures[textureId] != null) {
+            Texture tex = textures[textureId];
+            if (tex.animationDirection == 0) {
+                tex.animationDirection = direction;
+            }
+            if (tex.getAnimationSpeed() == 0) {
+                tex.setAnimationSpeed(speed);
+            }
+        }
     }
 
     @Override
@@ -142,11 +166,13 @@ public class TextureProvider implements RSTextureProvider, TextureLoader {
         remaining = capacity;
     }
 
-    public void animate(int textureID) {
+    public void animate(int tickDelta) {
+        if (tickDelta <= 0) {
+            tickDelta = 1;
+        }
         for (Texture texture : textures) {
-            if (texture != null && texture.animationDirection != 0 && texture.isLoaded) {
-                texture.animate(textureID);
-                texture.isLoaded = false;
+            if (texture != null && texture.animationDirection != 0 && texture.pixels != null) {
+                texture.animate(tickDelta);
             }
         }
     }

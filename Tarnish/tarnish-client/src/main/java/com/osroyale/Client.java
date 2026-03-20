@@ -3985,6 +3985,13 @@ public class Client extends GameEngine implements SwiftFUP, FileStore, AutoProce
         Player.mruNodes.unlinkAll();
     }
 
+    /**
+     * Clear software rendering caches to help FPS recovery after zooming.
+     */
+    public void clearSoftwareRenderCaches() {
+        uLinkNodes();
+    }
+
     public Console console = new Console();
 
     private void setBounds() {
@@ -7531,11 +7538,17 @@ public class Client extends GameEngine implements SwiftFUP, FileStore, AutoProce
     private static final boolean FORCE_LITE_MODE = Boolean.getBoolean("runecartel.lite");
 
     private static void setHighMem() {
-        SceneGraph.lowMem = false;
-        lowMem = false;
+        // Note: SceneGraph.lowMem affects floor tile texture rendering
+        // When true, uses fast solid-color rendering for floor tiles
+        // When false, uses slow per-pixel textured floor tile rendering
+        // For software rendering (no GPU), we keep SceneGraph.lowMem = true
+        // because textured floor rendering is extremely expensive (the main FPS killer)
+        // GPU plugins handle floor textures themselves so this doesn't affect them
+        SceneGraph.lowMem = true; // CRITICAL: Keep true to avoid massive FPS drops from textured floor tiles
+        lowMem = false; // Other lowMem flags can stay false for model quality
         MapRegion.lowMem = false;
         ObjectDefinition.lowMem = false;
-        Rasterizer3D.lowMem = false;
+        Rasterizer3D.lowMem = false; // Model textures stay high quality
     }
 
     private static void setLowMem() {
@@ -7543,7 +7556,7 @@ public class Client extends GameEngine implements SwiftFUP, FileStore, AutoProce
         lowMem = true;
         MapRegion.lowMem = true;
         ObjectDefinition.lowMem = true;
-        Rasterizer3D.lowMem = true;
+        Rasterizer3D.lowMem = false; // Keep textures at 128x128 for quality
     }
 
     private static void applyStartupMemoryMode() {
@@ -13166,7 +13179,7 @@ public class Client extends GameEngine implements SwiftFUP, FileStore, AutoProce
             createSnow();
             drawSmoothLoading(75, "Loading resources");
 
-            TextureProvider textureProvider = new TextureProvider(this, configArchive, 20, Rasterizer3D.lowMem ? 64 : 128); // L: 1947
+            TextureProvider textureProvider = new TextureProvider(this, configArchive, 64, Rasterizer3D.lowMem ? 64 : 128); // L: 1947
             Rasterizer3D.setTextureLoader(textureProvider); // L: 1948
             Rasterizer3D.setBrightness(0.80000000000000004D); // builds hslToRgb palette + sets texture brightness
 
@@ -19263,6 +19276,15 @@ public class Client extends GameEngine implements SwiftFUP, FileStore, AutoProce
 
         Model.cursorCalculations();
         Rasterizer2D.reset();
+
+        // Apply conservative zoom limits for software rendering to prevent FPS drops.
+        if (!isGpu()) {
+            int minZoom = !isResized() ? 450 : 500;
+            int maxZoom = !isResized() ? 700 : 850;
+            if (clientZoom < minZoom) clientZoom = minZoom;
+            if (clientZoom > maxZoom) clientZoom = maxZoom;
+        }
+
         if (Rasterizer3D.fieldOfView != clientZoom) {
             Rasterizer3D.fieldOfView = clientZoom;
         }
@@ -19339,17 +19361,11 @@ public class Client extends GameEngine implements SwiftFUP, FileStore, AutoProce
 
         viewportInterfaceCallback();
 
-        // Continuous render timing (every 200 frames)
         drawTimingSceneNs += (afterSceneRender - renderStart);
         drawTimingEntitiesNs += (afterEntitiesUI - afterSceneRender);
         drawTimingUINs += (afterUIChrome - afterEntitiesUI);
         drawTimingFrameCount++;
         if (drawTimingFrameCount >= 200) {
-            long avgScene = drawTimingSceneNs / drawTimingFrameCount / 1_000_000;
-            long avgEntities = drawTimingEntitiesNs / drawTimingFrameCount / 1_000_000;
-            long avgUI = drawTimingUINs / drawTimingFrameCount / 1_000_000;
-            long avgBlit = drawTimingBlitNs / drawTimingFrameCount / 1_000_000;
-            System.out.println("[DRAW] scene=" + avgScene + "ms entities=" + avgEntities + "ms ui=" + avgUI + "ms blit=" + avgBlit + "ms");
             drawTimingSceneNs = drawTimingEntitiesNs = drawTimingUINs = drawTimingBlitNs = 0;
             drawTimingFrameCount = 0;
         }

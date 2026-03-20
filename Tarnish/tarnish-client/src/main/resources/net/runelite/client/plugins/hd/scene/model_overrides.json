@@ -1223,7 +1223,7 @@
   },
   {
     "description": "TREES",
-    "baseMaterial": "BARK",
+    "baseMaterial": "NONE",
     "objectIds": [
       1293,
       1294,
@@ -1245,7 +1245,7 @@
   },
   {
     "description": "Fallen Tree",
-    "baseMaterial": "BARK",
+    "baseMaterial": "NONE",
     "objectIds": [
       9661,
       9663
@@ -1253,7 +1253,7 @@
   },
   {
     "description": "DEAD_TREES",
-    "baseMaterial": "BARK",
+    "baseMaterial": "NONE",
     "objectIds": [
       1282,
       1283,
@@ -1285,7 +1285,7 @@
   },
   {
     "description": "TREE_STUMP",
-    "baseMaterial": "BARK",
+    "baseMaterial": "NONE",
     "objectIds": [
       1341,
       4328,

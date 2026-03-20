@@ -64,13 +64,13 @@ public final class Settings {
         CUSTOM_LIGHTING = false;
         HD_MINIMAP = false;
         TWEENING = false;
-        GROUND_DECORATIONS = false;
+        GROUND_DECORATIONS = false; // Disable for performance - these are flowers/grass etc
         MIPMAPPING = false;
         FOG = false;
         SMOOTH_SHADING = false;
         SNOW = false;
         PARTICLES = false;
-        MOVING_TEXTURE = false;
+        MOVING_TEXTURE = true; // Keep enabled for fire cape etc animations
         DISPLAY_NAMES = false;
         DISPLAY_CLAN_TAG = false;
         DISPLAY_KILL_FEED = false;
@@ -86,6 +86,7 @@ public final class Settings {
         DAMAGE_MULTIPLIER = false;
         MINIMAP_RANK = false;
         RESIZABLE = false; // Force fixed mode - resizable is too slow for software rendering
+        ROOF = true; // Re-enable roofs
     }
 
     public static volatile boolean FIRST_CLIENT_START = true;
@@ -474,9 +475,8 @@ public final class Settings {
         try {
             final Path path = Path.of(CHAR_PATH, FILE_NAME);
             if (!Files.exists(path)) {
-                if (FORCE_LITE_MODE) {
-                    applyLiteProfile();
-                }
+                // Always apply lite profile for first-time users for better performance
+                applyLiteProfile();
                 return;
             }
 

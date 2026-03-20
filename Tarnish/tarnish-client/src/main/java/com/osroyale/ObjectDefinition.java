@@ -827,10 +827,10 @@ public final class ObjectDefinition {
 	public String interactions[];
 
 	// these are used by getModelSharelight
-	public static Cache cachedEntities = new Cache(30);
+	public static Cache cachedEntities = new Cache(100);
 
 	// these are used by getModelAnimated and getModel, getModel is used by objects which are spawned and does not adjust lighting to surrounding objects
-	public static Cache modelCache = new Cache(30);
+	public static Cache modelCache = new Cache(100);
 
 	// these are used by getModelUnlit
 	public static Cache modelUnlitCache = new Cache(500);

@@ -1114,8 +1114,9 @@ final class SceneGraph implements RSScene {
 	}
 
 	private static final int INVALID_HSL_COLOR = 12345678;
-	// Reduced from 18 to 12 for better software rendering performance
-	private static final int DEFAULT_DISTANCE = 12;
+	// Draw distance for software rendering
+	// GPU plugins use their own drawDistance setting
+	private static final int DEFAULT_DISTANCE = 15;
 	private static final int VISIBILITY_MAP_OFFSET = 25;
 	private static final int PITCH_LOWER_LIMIT = 128;
 	private static final int PITCH_UPPER_LIMIT = 383;
@@ -1165,7 +1166,21 @@ final class SceneGraph implements RSScene {
 		final int minLevel = getMinLevel();
 
 		final RSTile[][][] tiles = getTiles();
-		final int distance = isGpu ? drawDistance : DEFAULT_DISTANCE;
+		int distance;
+		if (isGpu) {
+			distance = drawDistance;
+		} else {
+			// Dynamic draw distance based on zoom for software rendering
+			// Lower zoom values = more zoomed out = need less draw distance
+			int zoom = Client.instance.get3dZoom();
+			if (zoom >= 600) {
+				distance = DEFAULT_DISTANCE; // 20 when zoomed in normally
+			} else if (zoom >= 450) {
+				distance = 16; // medium zoom
+			} else {
+				distance = 12; // zoomed out far
+			}
+		}
 
 		if (cameraXPos < 0)
 		{

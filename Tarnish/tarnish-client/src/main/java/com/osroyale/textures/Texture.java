@@ -165,11 +165,8 @@ public class Texture extends Linkable implements RSTexture {
     }
 
     void animate(int var1) {
-        if (Client.instance.isGpu()) {
-            Client.instance.getDrawCallbacks().animate(this, var1);
-            return;
-        }
-
+        // Always do software texture animation - GPU plugins handle their own animation
+        // but we need the pixel data updated for software fallback rendering
         if (this.pixels != null) {
             short var2;
             int var3;
@@ -266,6 +263,10 @@ public class Texture extends Linkable implements RSTexture {
 
     public int getAnimationSpeed() {
         return animationSpeed;
+    }
+    
+    public void setAnimationSpeed(int speed) {
+        this.animationSpeed = speed;
     }
 
     @Override

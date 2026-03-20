@@ -1128,6 +1128,7 @@ public final class Rasterizer3D extends Rasterizer2D {
 		if (Client.instance.isGpu() && !renderOnGpu) {
 			return;
 		}
+
 		int[] texturePixels = textureLoader.getTexturePixels(textureID);
 		int averageRGB;
 		if (texturePixels == null) {

@@ -914,7 +914,7 @@ public final class NpcDefinition {
     public boolean isVisible;
     public int[] modelIds;
     public int interfaceZoom = 0;
-    public static Cache modelCache = new Cache(30);
+    public static Cache modelCache = new Cache(100);
 
     @Override
     public String toString() {

@@ -53,13 +53,19 @@ public class MouseWheelHandler implements MouseWheelListener, RSMouseWheelHandle
                     return;
                 }
 
+                int oldZoom = Client.clientZoom;
                 Client.clientZoom -= rotation * 45;
 
                 boolean fixed = !Client.instance.isResized();
-                if (Client.clientZoom > (fixed ? 1100 : 2200)) {
-                    Client.clientZoom = (fixed ? 1100 : 2200);
-                } else if (Client.clientZoom < (fixed ? 180 : 240)) {
-                    Client.clientZoom = (fixed ? 180 : 240);
+                boolean isGpu = Client.instance.isGpu();
+                
+                // Limit zoom more aggressively for software rendering
+                int minZoom = isGpu ? (fixed ? 180 : 240) : (fixed ? 450 : 500);
+                int maxZoom = isGpu ? (fixed ? 1100 : 2200) : (fixed ? 700 : 850);
+                if (Client.clientZoom > maxZoom) {
+                    Client.clientZoom = maxZoom;
+                } else if (Client.clientZoom < minZoom) {
+                    Client.clientZoom = minZoom;
                 }
             }
         }

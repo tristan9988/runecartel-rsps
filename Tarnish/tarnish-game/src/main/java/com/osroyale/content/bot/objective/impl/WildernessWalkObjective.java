@@ -37,7 +37,7 @@ public class WildernessWalkObjective implements BotObjectiveListener {
             if (x > 3101) x = 3101;
             if (y > 3547) y = 3547;
 
-            bot.walkExactlyTo(Position.create(x, y));
+            bot.walkTo(Position.create(x, y));
             bot.pause(RandomUtils.inclusive(4, 15));
         });
     }

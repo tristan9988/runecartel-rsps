@@ -140,7 +140,7 @@ public enum Material {
 		.setUnlit(true)
 		.setOverrideBaseColor(true)
 		.setFlowMap(LAVA_FLOW_MAP, 0.02f, 12, 4)
-		.setScroll(0, 0)),
+		.setScroll(0, 1 / 3f)),
 	LEAVES_3(60),
 	CLAN_SKULL(61),
 	CLAN_PARTYHAT(62),
