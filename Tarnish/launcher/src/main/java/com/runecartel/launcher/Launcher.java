@@ -838,21 +838,15 @@ public class Launcher extends JFrame {
 
     private LaunchProfile determineLaunchProfile(String javaExecutable) {
         boolean is64Bit = isLikely64BitJava(javaExecutable);
-        long freePhysicalMemoryMb = getFreePhysicalMemoryMb();
 
         int heapMb;
         if (!is64Bit) {
             heapMb = 768;
-        } else if (freePhysicalMemoryMb < 0L) {
-            heapMb = 1024;
-        } else if (freePhysicalMemoryMb >= 6144L) {
-            heapMb = 1536;
-        } else if (freePhysicalMemoryMb >= 3584L) {
-            heapMb = 1024;
-        } else if (freePhysicalMemoryMb >= 2560L) {
-            heapMb = 1024;
         } else {
-            heapMb = 512;
+            // Always try 1536MB for 64-bit systems. The fallback mechanism in
+            // buildLaunchProfiles() will step down to 1024 → 768 → 512 if the
+            // OS genuinely cannot reserve this much.
+            heapMb = 1536;
         }
 
         return createLaunchProfile(heapMb);
@@ -871,6 +865,28 @@ public class Launcher extends JFrame {
         if (lowerJavaPath.contains("program files (x86)")) {
             return false;
         }
+        // If the executable is under "Program Files" (not x86), it's almost certainly 64-bit.
+        if (lowerJavaPath.contains("program files")) {
+            return true;
+        }
+        // Probe the target JVM instead of relying on the launcher's own JVM properties.
+        try {
+            ProcessBuilder pb = new ProcessBuilder(javaExecutable, "-XshowSettings:vm", "-version");
+            pb.redirectErrorStream(true);
+            Process process = pb.start();
+            byte[] output = process.getInputStream().readAllBytes();
+            process.waitFor(5, java.util.concurrent.TimeUnit.SECONDS);
+            String versionOutput = new String(output, java.nio.charset.StandardCharsets.UTF_8);
+            if (versionOutput.contains("64-Bit") || versionOutput.contains("64-bit")) {
+                return true;
+            }
+            if (versionOutput.contains("Client VM")) {
+                return false; // 32-bit Client VM
+            }
+        } catch (Exception e) {
+            System.out.println("Could not probe java executable for architecture: " + e.getMessage());
+        }
+        // Fallback to launcher JVM properties
         return System.getProperty("os.arch", "").contains("64") || System.getProperty("sun.arch.data.model", "").contains("64");
     }
 

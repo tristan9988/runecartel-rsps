@@ -91,7 +91,7 @@ import static java.nio.file.StandardCopyOption.COPY_ATTRIBUTES;
 @DoNotRename
 public class RuneLite
 {
-	private static final boolean DISABLE_PLUGIN_SYSTEM = true;
+	private static final boolean DISABLE_PLUGIN_SYSTEM = false;
 
 	public static final File RUNELITE_DIR = new File(System.getProperty("user.home"), Configuration.CACHE_NAME);
 	public static final File CACHE_DIR = new File(RUNELITE_DIR, "cache");
@@ -156,30 +156,6 @@ public class RuneLite
 
 	public static void main(String[] args) throws Exception
 	{
-		// Auto-restart with more memory if heap is too low (fixes double-click launching)
-		long maxMemMB = Runtime.getRuntime().maxMemory() / 1024 / 1024;
-		if (maxMemMB < 400)
-		{
-			try
-			{
-				String javaBin = System.getProperty("java.home") + java.io.File.separator + "bin" + java.io.File.separator + "java";
-				String jarPath = new java.io.File(RuneLite.class.getProtectionDomain().getCodeSource().getLocation().toURI()).getPath();
-				if (jarPath.endsWith(".jar"))
-				{
-					java.util.List<String> cmd = new java.util.ArrayList<>();
-					cmd.add(javaBin);
-					cmd.add("-Xmx2g");
-					cmd.add("-Xms512m");
-					cmd.add("-jar");
-					cmd.add(jarPath);
-					for (String arg : args) cmd.add(arg);
-					new ProcessBuilder(cmd).inheritIO().start();
-					System.exit(0);
-					return;
-				}
-			}
-			catch (Exception ignored) {}
-		}
 
 		Locale.setDefault(Locale.ENGLISH);
 

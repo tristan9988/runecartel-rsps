@@ -263,9 +263,54 @@ public class PluginManager
 			SplashScreen.stage(.80, 1, null, "Starting plugins", loaded, scannedPlugins.size(), false);
 		}
 
+		// Safety net: ensure the HD plugin is always enabled and running.
+		// This prevents stale settings from keeping the client in software-rendering mode.
+		ensureHdPluginActive();
+
 		for (Plugin plugin : plugins)
 		{
 			ReflectUtil.queueInjectorAnnotationCacheInvalidation(plugin.injector);
+		}
+	}
+
+	private void ensureHdPluginActive()
+	{
+		Plugin hdPlugin = null;
+		boolean hdActive = false;
+
+		for (Plugin plugin : plugins)
+		{
+			String simpleName = plugin.getClass().getSimpleName();
+			if ("HdPlugin".equals(simpleName))
+			{
+				hdPlugin = plugin;
+				hdActive = activePlugins.contains(plugin);
+			}
+		}
+
+		if (hdPlugin != null && !hdActive)
+		{
+			log.info("HD plugin is not active after startup – force-enabling it now");
+			setPluginEnabled(hdPlugin, true);
+			final Plugin toStart = hdPlugin;
+			try
+			{
+				SwingUtilities.invokeAndWait(() ->
+				{
+					try
+					{
+						startPlugin(toStart);
+					}
+					catch (PluginInstantiationException ex)
+					{
+						log.warn("Failed to force-start HD plugin", ex);
+					}
+				});
+			}
+			catch (InterruptedException | InvocationTargetException e)
+			{
+				log.warn("Interrupted while force-starting HD plugin", e);
+			}
 		}
 	}
 
