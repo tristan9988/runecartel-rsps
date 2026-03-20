@@ -12,8 +12,6 @@ public final class SequentialClientSynchronizer implements ClientSynchronizer {
 
     @Override
     public void synchronize(MobList<Player> players, MobList<Npc> npcs) {
-/*        npcs.forEach(npc -> new NpcPreUpdateTask(npc).run());
-        players.forEach(player -> new PlayerPreUpdateTask(player).run());*/
 
         players.forEach(player -> new PlayerUpdateTask(player).run());
         players.forEach(player -> new NpcUpdateTask(player).run());

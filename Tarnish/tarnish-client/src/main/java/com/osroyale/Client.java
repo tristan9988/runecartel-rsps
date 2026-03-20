@@ -54,12 +54,15 @@ import java.util.concurrent.TimeoutException;
 import java.util.function.Consumer;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
+import java.util.zip.GZIPInputStream;
 
 import static com.osroyale.SceneGraph.pitchRelaxEnabled;
 import static com.osroyale.Utility.getFileNameWithoutExtension;
 
 @Slf4j
 public class Client extends GameEngine implements SwiftFUP, FileStore, AutoProcessor, RSClient {
+
+    static final boolean DISABLE_RUNELITE_RENDER_HOOKS = true;
 
     /**
      * We keep this main method here to support fallback in lanuncher etc.
@@ -272,6 +275,15 @@ public class Client extends GameEngine implements SwiftFUP, FileStore, AutoProce
     private Callbacks callbacks;
     private int tickCount;
     private boolean gpu = false;
+    private int loggedInRenderDebugCount = 0;
+    private boolean clearedLoggedInOverlays = false;
+
+    // Continuous render timing
+    private long drawTimingSceneNs;
+    private long drawTimingEntitiesNs;
+    private long drawTimingUINs;
+    private long drawTimingBlitNs;
+    private int drawTimingFrameCount;
 
     @Override
     public Callbacks getCallbacks() {
@@ -280,11 +292,18 @@ public class Client extends GameEngine implements SwiftFUP, FileStore, AutoProce
 
     @Override
     public DrawCallbacks getDrawCallbacks() {
+        if (DISABLE_RUNELITE_RENDER_HOOKS) {
+            return null;
+        }
         return drawCallbacks;
     }
 
     @Override
     public void setDrawCallbacks(DrawCallbacks drawCallbacks) {
+        if (DISABLE_RUNELITE_RENDER_HOOKS) {
+            this.drawCallbacks = null;
+            return;
+        }
         this.drawCallbacks = drawCallbacks;
     }
 
@@ -352,10 +371,21 @@ public class Client extends GameEngine implements SwiftFUP, FileStore, AutoProce
     @Override
     public void setGameState(GameState state) {
         gameState = state.getState();
+        if (state == GameState.LOGGED_IN) {
+            loadingStage = 2;
+            clearedLoggedInOverlays = false;
+            fadingScreen = new FadingScreen();
+        }
+        OnDemandFetcher.debugWrite("[STATE] setGameState(" + state + ")");
         GameStateChanged event = new GameStateChanged();
         event.setGameState(state);
         if (callbacks != null) {
-            callbacks.post(event);
+            try {
+                callbacks.post(event);
+            } catch (Throwable t) {
+                OnDemandFetcher.debugWrite("[STATE] GameStateChanged callback exception for " + state + ": " + t);
+                t.printStackTrace();
+            }
         }
 
     }
@@ -367,7 +397,8 @@ public class Client extends GameEngine implements SwiftFUP, FileStore, AutoProce
 
     @Override
     public void setGameState(int gameState) {
-        loadingStage = gameState;
+        OnDemandFetcher.debugWrite("[STATE] setGameState(raw=" + gameState + ")");
+        this.gameState = gameState;
     }
 
 
@@ -1532,17 +1563,17 @@ public class Client extends GameEngine implements SwiftFUP, FileStore, AutoProce
 
     @Override
     public void setMouseCanvasHoverPositionX(int x) {
-
+        scene.clickScreenX = x;
     }
 
     @Override
     public void setMouseCanvasHoverPositionY(int y) {
-
+        scene.clickScreenY = y;
     }
 
     @Override
     public int getMouseCurrentButton() {
-        return 0;
+        return MouseHandler.currentButton;
     }
 
 
@@ -3842,24 +3873,29 @@ public class Client extends GameEngine implements SwiftFUP, FileStore, AutoProce
 
     @Override
     public void setMinimapZoom(boolean minimapZoom) {
-
+        minimapZoomEnabled = minimapZoom;
+        if (!minimapZoom) {
+            this.minimapZoom = 0;
+        }
     }
 
     @Override
     public double getMinimapZoom() {
-        return 0;
+        return minimapZoom == 0 ? 4D : minimapZoom;
     }
 
     @Override
     public boolean isMinimapZoom() {
-        return false;
+        return minimapZoomEnabled;
     }
 
     @Override
     public void setMinimapZoom(double zoom) {
-
+        minimapZoomEnabled = true;
+        minimapZoom = (int) Math.round(zoom);
     }
 
+    private boolean minimapZoomEnabled;
     private boolean chatLocked;
 
     @Override
@@ -4658,6 +4694,7 @@ public class Client extends GameEngine implements SwiftFUP, FileStore, AutoProce
 
     private void method22() {
         try {
+            OnDemandFetcher.debugWrite("[SCENE] method22 begin - building scene");
             setGameState(GameState.LOADING);
             anInt985 = -1;
             aClass19_1056.removeAll();
@@ -4678,6 +4715,7 @@ public class Client extends GameEngine implements SwiftFUP, FileStore, AutoProce
 
             currentMapRegion = new MapRegion(tileFlags, tileHeights);
             int k2 = mapTerrainData.length;
+            OnDemandFetcher.debugWrite("[SCENE] loading terrain for " + k2 + " regions");
             outgoing.writeOpcode(0);
             if (!aBoolean1159) {
                 for (int regionIndex = 0; regionIndex < k2; regionIndex++) {
@@ -4685,7 +4723,11 @@ public class Client extends GameEngine implements SwiftFUP, FileStore, AutoProce
                     int viewportY = (viewportRegions[regionIndex] & 0xff) * 64 - baseY;
                     byte abyte0[] = mapTerrainData[regionIndex];
                     if (abyte0 != null) {
-                        currentMapRegion.loadTerrain(abyte0, viewportY, viewportX, (lastRegionChunkX - 6) * 8, (lastRegionChunkY - 6) * 8, collisionMaps);
+                        try {
+                            currentMapRegion.loadTerrain(abyte0, viewportY, viewportX, (lastRegionChunkX - 6) * 8, (lastRegionChunkY - 6) * 8, collisionMaps);
+                        } catch (Exception e) {
+                            OnDemandFetcher.debugWrite("[SCENE] terrain load failed region=" + regionIndex + ": " + e);
+                        }
                     }
                     abyte0 = null;
                 }
@@ -4698,13 +4740,18 @@ public class Client extends GameEngine implements SwiftFUP, FileStore, AutoProce
                     }
                     abyte2 = null;
                 }
+                OnDemandFetcher.debugWrite("[SCENE] loading locations for " + k2 + " regions");
                 outgoing.writeOpcode(0);
                 for (int regionIndex = 0; regionIndex < k2; regionIndex++) {
                     byte abyte1[] = mapLocationData[regionIndex];
                     if (abyte1 != null) {
                         int viewportX = (viewportRegions[regionIndex] >> 8) * 64 - baseX;
                         int viewportY = (viewportRegions[regionIndex] & 0xff) * 64 - baseY;
-                        currentMapRegion.loadLocations(viewportX, collisionMaps, viewportY, scene, abyte1);
+                        try {
+                            currentMapRegion.loadLocations(viewportX, collisionMaps, viewportY, scene, abyte1);
+                        } catch (Exception e) {
+                            OnDemandFetcher.debugWrite("[SCENE] location load failed region=" + regionIndex + ": " + e);
+                        }
                     }
                     abyte1 = null;
                 }
@@ -4770,7 +4817,48 @@ public class Client extends GameEngine implements SwiftFUP, FileStore, AutoProce
 
             }
             outgoing.writeOpcode(0);
-            currentMapRegion.method171(collisionMaps, scene);
+            try {
+                normalizeSceneFloorIds();
+                // Debug: log floor definition sizes and terrain data before method171
+                OnDemandFetcher.debugWrite("[SCENE] FloorDefinition.underlays=" +
+                    (FloorDefinition.underlays == null ? "null" : "len=" + FloorDefinition.underlays.length) +
+                    " overlays=" + (FloorDefinition.overlays == null ? "null" : "len=" + FloorDefinition.overlays.length));
+                // Sample some underlay/overlay values from loaded terrain
+                int sampleUnderlayNonZero = 0;
+                int sampleOverlayNonZero = 0;
+                int sampleUnderlayMax = 0;
+                int sampleOverlayMax = 0;
+                for (int sz = 0; sz < 4; sz++) {
+                    for (int sx = 0; sx < 104; sx++) {
+                        for (int sy = 0; sy < 104; sy++) {
+                            int uid = currentMapRegion.underlayId[sz][sx][sy] & 0xFFFF;
+                            int oid = currentMapRegion.Tiles_overlays[sz][sx][sy] & 0xFFFF;
+                            if (uid > 0) { sampleUnderlayNonZero++; if (uid > sampleUnderlayMax) sampleUnderlayMax = uid; }
+                            if (oid > 0) { sampleOverlayNonZero++; if (oid > sampleOverlayMax) sampleOverlayMax = oid; }
+                        }
+                    }
+                }
+                OnDemandFetcher.debugWrite("[SCENE] terrain data: underlayNonZero=" + sampleUnderlayNonZero +
+                    " overlayNonZero=" + sampleOverlayNonZero +
+                    " underlayMaxId=" + sampleUnderlayMax + " overlayMaxId=" + sampleOverlayMax);
+                OnDemandFetcher.debugWrite("[SCENE] lowMem=" + lowMem + " MapRegion.lowMem=" + MapRegion.lowMem +
+                    " anInt131=" + MapRegion.anInt131);
+                currentMapRegion.method171(collisionMaps, scene);
+                // Count tiles in scene after method171
+                int tileCount = 0;
+                for (int tz = 0; tz < 4; tz++) {
+                    for (int tx = 0; tx < 104; tx++) {
+                        for (int ty = 0; ty < 104; ty++) {
+                            if (scene.tileArray[tz][tx][ty] != null) tileCount++;
+                        }
+                    }
+                }
+                OnDemandFetcher.debugWrite("[SCENE] after method171: tileCount=" + tileCount +
+                    " Tiles_minPlane=" + MapRegion.Tiles_minPlane);
+            } catch (Exception e) {
+                OnDemandFetcher.debugWrite("[SCENE] method171 (build scene) failed: " + e);
+                e.printStackTrace();
+            }
             if (Settings.FOG) {
 
                 currentMapRegion.fogColorList.clear();
@@ -4784,20 +4872,35 @@ public class Client extends GameEngine implements SwiftFUP, FileStore, AutoProce
             if (k3 < plane - 1) {
                 k3 = plane - 1;
             }
-            if (lowMem) {
-                scene.method275(MapRegion.Tiles_minPlane);
-            } else {
-                scene.method275(0);
+            try {
+                if (lowMem) {
+                    scene.method275(MapRegion.Tiles_minPlane);
+                } else {
+                    scene.method275(0);
+                }
+            } catch (Exception e) {
+                OnDemandFetcher.debugWrite("[SCENE] method275 (set min level) failed: " + e);
+                e.printStackTrace();
             }
             for (int i5 = 0; i5 < 104; i5++) {
                 for (int i7 = 0; i7 < 104; i7++) {
-                    updateGroundItem(i5, i7);
+                    try {
+                        updateGroundItem(i5, i7);
+                    } catch (Exception e) {
+                        // skip ground item
+                    }
                 }
 
             }
 
-            method63();
+            try {
+                method63();
+            } catch (Exception e) {
+                OnDemandFetcher.debugWrite("[SCENE] method63 failed: " + e);
+                e.printStackTrace();
+            }
         } catch (Exception exception) {
+            OnDemandFetcher.debugWrite("[SCENE] method22 exception: " + exception);
             exception.printStackTrace();
         }
         ObjectDefinition.clearCaches();
@@ -4817,7 +4920,7 @@ public class Client extends GameEngine implements SwiftFUP, FileStore, AutoProce
         }*/
         System.gc();
 
-        //onDemandFetcher.method566();
+            //onDemandFetcher.method566();
         int minViewportX = (lastRegionChunkX - 6) / 8 - 1;
         int maxViewportX = (lastRegionChunkX + 6) / 8 + 1;
         int minViewportY = (lastRegionChunkY - 6) / 8 - 1;
@@ -4843,8 +4946,83 @@ public class Client extends GameEngine implements SwiftFUP, FileStore, AutoProce
             }
 
         }
+        OnDemandFetcher.debugWrite("[SCENE] method22 complete, setting LOGGED_IN");
         setGameState(GameState.LOGGED_IN);
     }
+
+          private void normalizeSceneFloorIds() {
+            if (currentMapRegion == null || currentMapRegion.underlayId == null || currentMapRegion.Tiles_overlays == null) {
+              return;
+            }
+
+            int fixedUnderlays = 0;
+            int fixedOverlays = 0;
+
+            for (int plane = 0; plane < 4; plane++) {
+              for (int x = 0; x < 104; x++) {
+                for (int y = 0; y < 104; y++) {
+                  int underlayId = currentMapRegion.underlayId[plane][x][y] & 0xFFFF;
+                  int normalizedUnderlayId = normalizeFloorId(underlayId, FloorDefinition.underlays);
+                  if (normalizedUnderlayId != underlayId) {
+                    currentMapRegion.underlayId[plane][x][y] = (short) normalizedUnderlayId;
+                    fixedUnderlays++;
+                  }
+
+                  int overlayId = currentMapRegion.Tiles_overlays[plane][x][y] & 0xFFFF;
+                  int normalizedOverlayId = normalizeFloorId(overlayId, FloorDefinition.overlays);
+                  if (normalizedOverlayId != overlayId) {
+                    currentMapRegion.Tiles_overlays[plane][x][y] = (short) normalizedOverlayId;
+                    fixedOverlays++;
+                  }
+                }
+              }
+            }
+
+            if (fixedUnderlays > 0 || fixedOverlays > 0) {
+              OnDemandFetcher.debugWrite("[SCENE] normalized floor ids: underlays=" + fixedUnderlays + " overlays=" + fixedOverlays);
+            }
+          }
+
+          private int normalizeFloorId(int id, FloorDefinition[] definitions) {
+            if (id <= 0 || definitions == null || definitions.length == 0) {
+              return 0;
+            }
+
+            int normalizedId = getLegacyFloorId(id, definitions);
+            if (normalizedId != 0) {
+              return normalizedId;
+            }
+
+            int lowByteId = id & 0xFF;
+            normalizedId = getLegacyFloorId(lowByteId, definitions);
+            if (normalizedId != 0) {
+              return normalizedId;
+            }
+
+            int highByteId = (id >> 8) & 0xFF;
+            normalizedId = getLegacyFloorId(highByteId, definitions);
+            if (normalizedId != 0) {
+              return normalizedId;
+            }
+
+            return 0;
+          }
+
+          private int getLegacyFloorId(int id, FloorDefinition[] definitions) {
+            if (id <= 0) {
+              return 0;
+            }
+
+            if (id - 1 < definitions.length && definitions[id - 1] != null) {
+              return id;
+            }
+
+            if (id < definitions.length && definitions[id] != null) {
+              return id + 1;
+            }
+
+            return 0;
+          }
 
     public static AbstractMap.SimpleEntry<Integer, Integer> getNextInteger(ArrayList<Integer> values) {
         ArrayList<AbstractMap.SimpleEntry<Integer, Integer>> frequencies = new ArrayList<>();
@@ -6064,8 +6242,22 @@ public class Client extends GameEngine implements SwiftFUP, FileStore, AutoProce
                             Rasterizer2D.fillRectangle(drawX + ratio, drawY, limit - ratio, 5, 0xFF0000);
                         } else if (Settings.HP_BAR == 1) {
                             spriteCache.get(41).drawSprite(spriteDrawX - 28, drawY);
-                            Sprite sprite = Sprite.resizeSprite(spriteCache.get(40), ratio, spriteCache.get(40).height);
-                            sprite.drawSprite(spriteDrawX - 28, drawY);
+                            // Use clipped draw instead of resizeSprite to avoid per-frame allocation
+                            Sprite hpFill = spriteCache.get(40);
+                            if (ratio > 0 && hpFill != null) {
+                                int savedLeftX = Rasterizer2D.leftX;
+                                int savedTopY = Rasterizer2D.topY;
+                                int savedBottomX = Rasterizer2D.bottomX;
+                                int savedBottomY = Rasterizer2D.bottomY;
+                                int savedLastX = Rasterizer2D.lastX;
+                                Rasterizer2D.setDrawingArea(spriteDrawX - 28, drawY, spriteDrawX - 28 + ratio, drawY + hpFill.height);
+                                hpFill.drawSprite(spriteDrawX - 28, drawY);
+                                Rasterizer2D.leftX = savedLeftX;
+                                Rasterizer2D.topY = savedTopY;
+                                Rasterizer2D.bottomX = savedBottomX;
+                                Rasterizer2D.bottomY = savedBottomY;
+                                Rasterizer2D.lastX = savedLastX;
+                            }
                         } else if (Settings.HP_BAR == 2) {
                             Rasterizer2D.fillRectangle(drawX, drawY, ratio, 5, 0x4CED84);
                             Rasterizer2D.fillRectangle(drawX + ratio, drawY, limit - ratio, 5, 0xF24E4E);
@@ -6973,27 +7165,51 @@ public class Client extends GameEngine implements SwiftFUP, FileStore, AutoProce
     }
 
     public void processGameLoop() {
-        final FileClient fileClient = this.fileClient;
-        if (fileClient != null) {
-            fileClient.getFileRequests().process();
-        }
-
-        callbacks.tick();
-        callbacks.post(ClientTick.INSTANCE);
-
-        tick++;
-
-        if (loggedIn) {
-            mainGameProcessor();
-            if (Settings.SNOW) {
-                processSnowflakes();
+        try {
+            final FileClient fileClient = this.fileClient;
+            if (fileClient != null) {
+                fileClient.getFileRequests().process();
             }
-            getCallbacks().onGameTick();
-        } else {
-            final LoginRenderer loginRenderer = this.loginRenderer;
-            if (loginRenderer != null) {
-                loginRenderer.click();
+
+            if (!DISABLE_RUNELITE_RENDER_HOOKS) {
+                try {
+                    callbacks.tick();
+                    callbacks.post(ClientTick.INSTANCE);
+                } catch (Throwable t) {
+                    OnDemandFetcher.debugWrite("[LOOP] Callback exception in processGameLoop: " + t);
+                    t.printStackTrace();
+                }
             }
+
+            tick++;
+
+            if (loggedIn) {
+                mainGameProcessor();
+                if (Settings.SNOW) {
+                    processSnowflakes();
+                }
+                if (!DISABLE_RUNELITE_RENDER_HOOKS) {
+                    try {
+                        getCallbacks().onGameTick();
+                    } catch (Throwable t) {
+                        OnDemandFetcher.debugWrite("[LOOP] onGameTick exception: " + t);
+                        t.printStackTrace();
+                    }
+                }
+            } else {
+                final LoginRenderer loginRenderer = this.loginRenderer;
+                if (loginRenderer != null) {
+                    loginRenderer.click();
+                }
+            }
+        } catch (Throwable t) {
+            OnDemandFetcher.debugWrite("[LOOP] Fatal exception in processGameLoop: " + t);
+            java.io.StringWriter sw = new java.io.StringWriter();
+            java.io.PrintWriter pw = new java.io.PrintWriter(sw);
+            t.printStackTrace(pw);
+            pw.flush();
+            OnDemandFetcher.debugWrite(sw.toString());
+            t.printStackTrace();
         }
     }
 
@@ -7312,21 +7528,48 @@ public class Client extends GameEngine implements SwiftFUP, FileStore, AutoProce
         }
     }
 
+    private static final boolean FORCE_LITE_MODE = Boolean.getBoolean("runecartel.lite");
+
     private static void setHighMem() {
         SceneGraph.lowMem = false;
         lowMem = false;
         MapRegion.lowMem = false;
         ObjectDefinition.lowMem = false;
+        Rasterizer3D.lowMem = false;
+    }
+
+    private static void setLowMem() {
+        SceneGraph.lowMem = true;
+        lowMem = true;
+        MapRegion.lowMem = true;
+        ObjectDefinition.lowMem = true;
+        Rasterizer3D.lowMem = true;
+    }
+
+    private static void applyStartupMemoryMode() {
+        if (FORCE_LITE_MODE) {
+            setLowMem();
+        } else {
+            setHighMem();
+        }
     }
 
     @Override
     public void init() {
         try {
+            try {
+                java.io.File debugFile = new java.io.File(System.getProperty("user.home") + "/.runecartel/debug.txt");
+                if (debugFile.exists()) {
+                    debugFile.delete();
+                }
+            } catch (Exception ignored) {
+            }
+
             Settings.load();
             Ping.runPing();
 
             nodeID = 10;
-            setHighMem();
+            applyStartupMemoryMode();
             isMembers = true;
             instance = this;
             if (Configuration.DEBUG_MODE) {
@@ -7346,6 +7589,7 @@ public class Client extends GameEngine implements SwiftFUP, FileStore, AutoProce
     public static Client instance;
 
 
+    private int loadingDebugCount = 0;
     private void loadingStages() {
         if (lowMem && loadingStage == 2 && MapRegion.anInt131 != plane) {
             setGameState(GameState.LOADING);
@@ -7354,9 +7598,18 @@ public class Client extends GameEngine implements SwiftFUP, FileStore, AutoProce
         }
         if (loadingStage == 1) {
             int j = method54();
-            if (j != 0 && System.currentTimeMillis() - aLong824 > 0x57e40L) {
-                Utility.reporterror(myUsername + " glcfb " + aLong1215 + "," + j + "," + lowMem + "," + fileStores[0] + "," + onDemandFetcher.getNodeCount() + "," + plane + "," + lastRegionChunkX + "," + lastRegionChunkY);
-                aLong824 = System.currentTimeMillis();
+            if (j != 0) {
+                if (loadingDebugCount < 50) {
+                    loadingDebugCount++;
+                    OnDemandFetcher.debugWrite("[LOADING] method54 returned " + j + " (aBoolean1080=" + aBoolean1080 + " mapLen=" + (mapTerrainData != null ? mapTerrainData.length : "null") + " gameState=" + gameState + ")");
+                }
+                if (System.currentTimeMillis() - aLong824 > 0x57e40L) {
+                    Utility.reporterror(myUsername + " glcfb " + aLong1215 + "," + j + "," + lowMem + "," + fileStores[0] + "," + onDemandFetcher.getNodeCount() + "," + plane + "," + lastRegionChunkX + "," + lastRegionChunkY);
+                    aLong824 = System.currentTimeMillis();
+                }
+            } else {
+                OnDemandFetcher.debugWrite("[LOADING] method54 returned 0 - LOADING COMPLETE!");
+                loadingDebugCount = 0;
             }
         }
         if (loadingStage == 2 && plane != anInt985) {
@@ -7368,13 +7621,38 @@ public class Client extends GameEngine implements SwiftFUP, FileStore, AutoProce
     private int method54() {
         for (int i = 0; i < mapTerrainData.length; i++) {
             if (mapTerrainData[i] == null && viewportMapFiles[i] != -1) {
-                return -1;
+                if (!Configuration.USE_UPDATE_SERVER) {
+                    byte[] raw = fileStores[4].readFile(viewportMapFiles[i]);
+                    mapTerrainData[i] = tryGunzip(raw);
+                    if (mapTerrainData[i] == null) {
+                        if (loadingDebugCount < 50) {
+                            OnDemandFetcher.debugWrite("[LOADING] terrain null for region " + i + " file=" + viewportMapFiles[i] + " - setting to -1");
+                        }
+                        viewportMapFiles[i] = -1;
+                    }
+                }
+                if (mapTerrainData[i] == null && viewportMapFiles[i] != -1) {
+                    return -1;
+                }
             }
             if (mapLocationData[i] == null && viewportLandscapeFiles[i] != -1) {
-                return -2;
+                if (!Configuration.USE_UPDATE_SERVER) {
+                    byte[] raw = fileStores[4].readFile(viewportLandscapeFiles[i]);
+                    mapLocationData[i] = tryGunzip(raw);
+                    if (mapLocationData[i] == null) {
+                        if (loadingDebugCount < 50) {
+                            OnDemandFetcher.debugWrite("[LOADING] location null for region " + i + " file=" + viewportLandscapeFiles[i] + " - setting to -1");
+                        }
+                        viewportLandscapeFiles[i] = -1;
+                    }
+                }
+                if (mapLocationData[i] == null && viewportLandscapeFiles[i] != -1) {
+                    return -2;
+                }
             }
         }
         boolean flag = true;
+        int failedRegion = -1;
         for (int regionIndex = 0; regionIndex < mapTerrainData.length; regionIndex++) {
             byte abyte0[] = mapLocationData[regionIndex];
             if (abyte0 != null) {
@@ -7384,13 +7662,19 @@ public class Client extends GameEngine implements SwiftFUP, FileStore, AutoProce
                     k = 10;
                     l = 10;
                 }
-                flag &= MapRegion.method189(k, abyte0, l);
+                boolean result = MapRegion.method189(k, abyte0, l);
+                if (!result) failedRegion = regionIndex;
+                flag &= result;
                 abyte0 = null;
             }
         }
         if (!flag) {
+            if (loadingDebugCount < 5) {
+                OnDemandFetcher.debugWrite("[LOADING] method189 failed for region index " + failedRegion + " regionId=" + (failedRegion >= 0 ? viewportRegions[failedRegion] : "?"));
+            }
             return -3;
         }
+
         if (aBoolean1080) {
             return -4;
         } else {
@@ -7399,6 +7683,29 @@ public class Client extends GameEngine implements SwiftFUP, FileStore, AutoProce
             method22();
             outgoing.writeOpcode(121);
             return 0;
+        }
+    }
+
+    private byte[] tryGunzip(byte[] data) {
+        if (data == null || data.length == 0) {
+            return data;
+        }
+
+        if (data.length < 2 || (data[0] & 0xFF) != 0x1F || (data[1] & 0xFF) != 0x8B) {
+            return data;
+        }
+
+        try (GZIPInputStream gzipInputStream = new GZIPInputStream(new ByteArrayInputStream(data));
+             ByteArrayOutputStream outputStream = new ByteArrayOutputStream(data.length)) {
+            byte[] buffer = new byte[4096];
+            int read;
+            while ((read = gzipInputStream.read(buffer)) != -1) {
+                outputStream.write(buffer, 0, read);
+            }
+            return outputStream.toByteArray();
+        } catch (IOException ex) {
+            OnDemandFetcher.debugWrite("[LOADING] Failed to gunzip cache file: " + ex);
+            return null;
         }
     }
 
@@ -7545,6 +7852,7 @@ public class Client extends GameEngine implements SwiftFUP, FileStore, AutoProce
                     break;
                 }
             } catch (Exception e) {
+                OnDemandFetcher.debugWrite("[PARSE] Exception in mainGameProcessor: " + e);
                 e.printStackTrace();
                 break;
             }
@@ -7674,9 +7982,15 @@ public class Client extends GameEngine implements SwiftFUP, FileStore, AutoProce
             outgoing.writeByte(0);
         }
         loadingStages();
-        method115();
+        try {
+            method115();
+        } catch (Exception e) {
+            // Don't let spawned object errors crash the game loop
+            // (corrupt model data in cache can cause ArrayIndexOutOfBoundsException)
+        }
         anInt1009++;
         if (anInt1009 > 750) {
+            OnDemandFetcher.debugWrite("[DROP] anInt1009 timeout triggered (anInt1009=" + anInt1009 + ", gameState=" + gameState + ", loggedIn=" + loggedIn + ")");
             dropClient();
         }
         method114();
@@ -7879,9 +8193,11 @@ public class Client extends GameEngine implements SwiftFUP, FileStore, AutoProce
                 anInt1010 = 0;
             }
         } catch (IOException _ex) {
+            OnDemandFetcher.debugWrite("[IO] Outgoing flush IOException: " + _ex);
             _ex.printStackTrace();
             dropClient();
         } catch (Exception exception) {
+            OnDemandFetcher.debugWrite("[IO] Outgoing flush Exception: " + exception);
             resetLogout();
         }
     }
@@ -8091,6 +8407,7 @@ public class Client extends GameEngine implements SwiftFUP, FileStore, AutoProce
             resetLogout();
             return;
         }
+        OnDemandFetcher.debugWrite("[DROP] dropClient() called (gameState=" + gameState + ", loggedIn=" + loggedIn + ", myUsername=" + myUsername + ")");
         setGameState(GameState.CONNECTION_LOST);
         Settings.save();
         minimapState = 0;
@@ -8098,14 +8415,11 @@ public class Client extends GameEngine implements SwiftFUP, FileStore, AutoProce
         BufferedConnection rsSocket = socketStream;
         loggedIn = false;
         loginFailures = 0;
-        attemptLogin(myUsername, myPassword, true);
         console.openConsole = false;
         shiftIsDown = false;
         controlIsDown = false;
         loginRenderer.setScreen(new MainScreen());
-        if (!loggedIn) {
-            resetLogout();
-        }
+        resetLogout();
         keybindManager.save();
         try {
             rsSocket.close();
@@ -10674,7 +10988,10 @@ public class Client extends GameEngine implements SwiftFUP, FileStore, AutoProce
                 }
 
                 model.generateBones();
-                model.interpolate(Animation.animations[localPlayer.seqStandID].primaryFrameIds[0]);
+                        Animation localStandAnimation = Animation.lookup(localPlayer.seqStandID);
+                        if (localStandAnimation != null) {
+                          model.interpolate(localStandAnimation.primaryFrameIds[0]);
+                        }
                 model.light(64, 850, -30, -50, -30, true);
                 rsint.defaultMediaType = 5;
                 rsint.mediaID = 0;
@@ -10701,7 +11018,10 @@ public class Client extends GameEngine implements SwiftFUP, FileStore, AutoProce
                     }
                     int staticFrame = localPlayer.seqStandID;
                     characterDisplay.generateBones();
-                    characterDisplay.interpolate(Animation.animations[staticFrame].primaryFrameIds[0]);
+                              Animation localStaticAnimation = Animation.lookup(staticFrame);
+                              if (localStaticAnimation != null) {
+                                characterDisplay.interpolate(localStaticAnimation.primaryFrameIds[0]);
+                              }
                     // characterDisplay.method479(64, 850, -30, -50, -30, true);
                     rsInterface.defaultMediaType = 5;
                     rsInterface.mediaID = 0;
@@ -10739,7 +11059,10 @@ public class Client extends GameEngine implements SwiftFUP, FileStore, AutoProce
                 }
                 int staticFrame = player.seqStandID;
                 characterDisplay.generateBones();
-                characterDisplay.interpolate(Animation.animations[staticFrame].primaryFrameIds[0]);
+                        Animation playerStaticAnimation = Animation.lookup(staticFrame);
+                        if (playerStaticAnimation != null) {
+                          characterDisplay.interpolate(playerStaticAnimation.primaryFrameIds[0]);
+                        }
                 rsInterface.defaultMediaType = 5;
                 rsInterface.mediaID = 0;
                 RSInterface.method208(aBoolean994, characterDisplay);
@@ -10806,7 +11129,10 @@ public class Client extends GameEngine implements SwiftFUP, FileStore, AutoProce
                 }
                 int staticFrame = npcDisplay.seqStandID;
                 npcModel.generateBones();
-                npcModel.interpolate(Animation.animations[staticFrame].primaryFrameIds[0]);
+                        Animation npcStaticAnimation = Animation.lookup(staticFrame);
+                        if (npcStaticAnimation != null) {
+                          npcModel.interpolate(npcStaticAnimation.primaryFrameIds[0]);
+                        }
                 // characterDisplay.method479(64, 850, -30, -50, -30, true);
                 rsInterface.defaultMediaType = 5;
                 rsInterface.mediaID = 0;
@@ -11807,10 +12133,47 @@ public class Client extends GameEngine implements SwiftFUP, FileStore, AutoProce
 
     public void login(String username, String password, boolean reconnecting) {
         try {
+            // Clear debug log for fresh session data
+            try {
+                java.io.FileWriter fw = new java.io.FileWriter(System.getProperty("user.home") + "/.runecartel/debug.txt", false);
+                fw.write("");
+                fw.close();
+            } catch (Exception ignored) {}
+            loggedInRenderDebugCount = 0;
+            loadingDebugCount = 0;
+            final long loginStart = System.currentTimeMillis();
+            OnDemandFetcher.debugWrite("[LOGIN] begin reconnecting=" + reconnecting + " username=" + username);
             // Connect with timeout so we don't hang if server is offline
             final Connection connection = Configuration.CONNECTION;
             Socket socket = new Socket();
-            socket.connect(new java.net.InetSocketAddress(connection.getGameAddress(), connection.getGamePort()), 10000);
+
+            // Try localhost first (avoids NAT hairpinning issues when server is on same machine)
+            boolean connected = false;
+            try {
+                socket.connect(new java.net.InetSocketAddress("localhost", connection.getGamePort()), 3000);
+                connected = true;
+                OnDemandFetcher.debugWrite("[LOGIN] Connected via localhost dt=" + (System.currentTimeMillis() - loginStart) + "ms");
+            } catch (Exception localEx) {
+                // Localhost failed, try the configured address
+                try { socket.close(); } catch (Exception ignored) {}
+                socket = new Socket();
+                try {
+                    socket.connect(new java.net.InetSocketAddress(connection.getGameAddress(), connection.getGamePort()), 10000);
+                    connected = true;
+                    OnDemandFetcher.debugWrite("[LOGIN] Connected via " + connection.getGameAddress() + " dt=" + (System.currentTimeMillis() - loginStart) + "ms");
+                } catch (Exception remoteEx) {
+                    // Both failed
+                    OnDemandFetcher.debugWrite("[LOGIN] Failed to connect via localhost and " + connection.getGameAddress() + ": " + remoteEx);
+                    remoteEx.printStackTrace();
+                }
+            }
+
+            if (!connected) {
+                loginMessage1 = "";
+                loginMessage2 = "Error connecting to server.";
+                return;
+            }
+
             socketStream = new BufferedConnection(socket);
             outgoing.position = 0;
             outgoing.writeByte(14);
@@ -11820,9 +12183,11 @@ public class Client extends GameEngine implements SwiftFUP, FileStore, AutoProce
             for (int i = 0; i < 8; i++) {
                 socketStream.read();
             }
+            OnDemandFetcher.debugWrite("[LOGIN] initial 8-byte handshake read dt=" + (System.currentTimeMillis() - loginStart) + "ms");
 
             int response = socketStream.read();
             int tempResponse = response;
+            OnDemandFetcher.debugWrite("[LOGIN] first response=" + response + " dt=" + (System.currentTimeMillis() - loginStart) + "ms");
 
             //End login lag1
 //            System.out.println("Starting if statements: " + System.currentTimeMillis()%60000);
@@ -11877,13 +12242,16 @@ public class Client extends GameEngine implements SwiftFUP, FileStore, AutoProce
                 encryption = new ISAACRandomGen(ai);
                 socketStream.queueBytes(aStream_847.position, aStream_847.array);
                 response = socketStream.read();
+                OnDemandFetcher.debugWrite("[LOGIN] post-credentials response=" + response + " dt=" + (System.currentTimeMillis() - loginStart) + "ms");
             }
             if (response == 1) {
+                OnDemandFetcher.debugWrite("[LOGIN] response=1 retrying after delay dt=" + (System.currentTimeMillis() - loginStart) + "ms");
                 renderLoginFor(2000);
                 attemptLogin(username, password, reconnecting);
                 return;
             }
             if (response == 2) {
+                OnDemandFetcher.debugWrite("[LOGIN] response=2 accepted dt=" + (System.currentTimeMillis() - loginStart) + "ms");
                 myPrivilege = socketStream.read();
                 flagged = socketStream.read() == 1;
                 aLong1220 = 0L;
@@ -12198,8 +12566,14 @@ public class Client extends GameEngine implements SwiftFUP, FileStore, AutoProce
                     animation = -1;
                 }
                 int delay = stream.readUnsignedByte();
+                Animation nextAnimation = Animation.lookup(animation);
+                Animation currentAnimation = Animation.lookup(npc.primarySeqID);
                 if (animation == npc.primarySeqID && animation != -1) {
-                    int replayMode = Animation.animations[animation].type;
+					if (nextAnimation == null) {
+						npc.primarySeqID = -1;
+						continue;
+					}
+					int replayMode = nextAnimation.type;
                     if (replayMode == 1) {
                         npc.primarySeqFrame = 0;
                         npc.primarySeqCycle = 0;
@@ -12209,7 +12583,7 @@ public class Client extends GameEngine implements SwiftFUP, FileStore, AutoProce
                     if (replayMode == 2) {
                         npc.animationLoops = 0;
                     }
-                } else if (animation == -1 || npc.primarySeqID == -1 || Animation.animations[animation].priority >= Animation.animations[npc.primarySeqID].priority) {
+				} else if (animation == -1 || currentAnimation == null || (nextAnimation != null && nextAnimation.priority >= currentAnimation.priority)) {
                     npc.primarySeqID = animation;
                     npc.primarySeqFrame = 0;
                     npc.primarySeqCycle = 0;
@@ -12793,8 +13167,8 @@ public class Client extends GameEngine implements SwiftFUP, FileStore, AutoProce
             drawSmoothLoading(75, "Loading resources");
 
             TextureProvider textureProvider = new TextureProvider(this, configArchive, 20, Rasterizer3D.lowMem ? 64 : 128); // L: 1947
-            textureProvider.setBrightness(0.80000000000000004D);
             Rasterizer3D.setTextureLoader(textureProvider); // L: 1948
+            Rasterizer3D.setBrightness(0.80000000000000004D); // builds hslToRgb palette + sets texture brightness
 
             Animation.unpackConfig(configArchive);
             FrameBase.loadFrameBases(configArchive);
@@ -13079,7 +13453,11 @@ public class Client extends GameEngine implements SwiftFUP, FileStore, AutoProce
     }
 
     private void nextForcedMovementStep(Entity entity) {
-        if (entity.endForceMovement == tick || entity.primarySeqID == -1 || entity.primarySeqDelay != 0 || entity.primarySeqCycle + 1 > Animation.animations[entity.primarySeqID].duration(entity.primarySeqFrame)) {
+    Animation primaryAnimation = Animation.lookup(entity.primarySeqID);
+    if (entity.primarySeqID != -1 && primaryAnimation == null) {
+      entity.primarySeqID = -1;
+    }
+    if (entity.endForceMovement == tick || entity.primarySeqID == -1 || entity.primarySeqDelay != 0 || primaryAnimation == null || entity.primarySeqCycle + 1 > primaryAnimation.duration(entity.primarySeqFrame)) {
             final int remaining = entity.endForceMovement - entity.startForceMovement;
             final int elapsed = tick - entity.startForceMovement;
             final int startX = entity.initialX * 128 + entity.size * 64;
@@ -13114,7 +13492,11 @@ public class Client extends GameEngine implements SwiftFUP, FileStore, AutoProce
         }
 
         if (entity.primarySeqID != -1 && entity.primarySeqDelay == 0) {
-            Animation animation = Animation.animations[entity.primarySeqID];
+              Animation animation = Animation.lookup(entity.primarySeqID);
+              if (animation == null) {
+                entity.primarySeqID = -1;
+                return;
+              }
 
             if (entity.remainingSteps > 0 && animation.runFlag == 0) {
                 entity.stepTracker++;
@@ -13307,10 +13689,10 @@ public class Client extends GameEngine implements SwiftFUP, FileStore, AutoProce
         //System.err.println("updateAnimation(secondarySeqID="+entity.secondarySeqID+", primarySeqID="+entity.primarySeqID+")");
         entity.dynamic = false;
         if (entity.secondarySeqID != -1) {
-            if (entity.secondarySeqID > Animation.animations.length) {
-                entity.secondarySeqID = 1;
-            }
-            final Animation secondaryAnimation = Animation.animations[entity.secondarySeqID];
+      final Animation secondaryAnimation = Animation.lookup(entity.secondarySeqID);
+      if (secondaryAnimation == null) {
+        entity.secondarySeqID = entity.seqStandID;
+      }
             if (secondaryAnimation != null) {
                 if (secondaryAnimation.isSkeletalAnimation()) {
                     ++entity.secondarySeqFrame;
@@ -13359,7 +13741,11 @@ public class Client extends GameEngine implements SwiftFUP, FileStore, AutoProce
             if (entity.currentAnimationId < 0) {
                 entity.currentAnimationId = 0;
             }
-            final Animation graphicAnimation = Graphic.graphics[entity.graphicId].animationSequence;
+      if (Graphic.graphics == null || entity.graphicId < 0 || entity.graphicId >= Graphic.graphics.length || Graphic.graphics[entity.graphicId] == null) {
+        entity.graphicId = -1;
+        return;
+      }
+      final Animation graphicAnimation = Graphic.graphics[entity.graphicId].animationSequence;
             if (graphicAnimation != null) {
                 for (entity.currentAnimationTimeRemaining++; entity.currentAnimationId < graphicAnimation.frameCount && entity.currentAnimationTimeRemaining > graphicAnimation.duration(entity.currentAnimationId); entity.currentAnimationId++) {
                     entity.currentAnimationTimeRemaining -= graphicAnimation.duration(entity.currentAnimationId);
@@ -13378,8 +13764,8 @@ public class Client extends GameEngine implements SwiftFUP, FileStore, AutoProce
             }
         }
         if (entity.primarySeqID != -1 && entity.primarySeqDelay <= 1) {
-            if (Animation.animations != null && entity.primarySeqID < 65535) {
-                final Animation primaryAnimation = Animation.animations[entity.primarySeqID];
+			if (Animation.animations != null && entity.primarySeqID < 65535) {
+				final Animation primaryAnimation = Animation.lookup(entity.primarySeqID);
                 if (primaryAnimation != null && primaryAnimation.runFlag == 1 && entity.remainingSteps > 0 && entity.startForceMovement <= tick && entity.endForceMovement < tick) {
                     entity.primarySeqDelay = 1;
                     return;
@@ -13387,7 +13773,11 @@ public class Client extends GameEngine implements SwiftFUP, FileStore, AutoProce
             }
         }
         if (entity.primarySeqID != -1 && entity.primarySeqDelay == 0) {
-            final Animation primaryAnimation = Animation.animations[entity.primarySeqID];
+      final Animation primaryAnimation = Animation.lookup(entity.primarySeqID);
+      if (primaryAnimation == null) {
+        entity.primarySeqID = -1;
+        return;
+      }
             if (primaryAnimation.isSkeletalAnimation()) {
                 ++entity.primarySeqFrame;
                 int skeletalLength = primaryAnimation.getSkeletalLength();
@@ -13554,7 +13944,25 @@ public class Client extends GameEngine implements SwiftFUP, FileStore, AutoProce
 
     }
 
+    private boolean isValidInterfaceIndex(int interfaceId) {
+        return interfaceId >= 0 && interfaceId < RSInterface.interfaceCache.length && RSInterface.interfaceCache[interfaceId] != null;
+    }
+
     private void drawGameScreen() {
+
+        if (gameState == GameState.LOGGED_IN.getState() && !clearedLoggedInOverlays) {
+            fullscreenInterfaceID = -1;
+            openInterfaceID = -1;
+            invOverlayInterfaceID = -1;
+            anInt1018 = -1;
+            backDialogueId = -1;
+            dialogueId = -1;
+            inputDialogState = 0;
+            messagePromptRaised = false;
+            clickToContinueString = null;
+            clearedLoggedInOverlays = true;
+            OnDemandFetcher.debugWrite("[RENDER] cleared stale logged-in overlays/interfaces");
+        }
 
         // check to see if we need to draw a full screen interface first
         if (shouldDrawFullScreenInterface()) {
@@ -13575,7 +13983,7 @@ public class Client extends GameEngine implements SwiftFUP, FileStore, AutoProce
 
         handleRedrawTriggers();
 
-        if (loadingStage == 2) {
+        if (loadingStage == 2 || gameState == GameState.LOGGED_IN.getState()) {
             drawGameWorld();
 
         }
@@ -14401,8 +14809,12 @@ public class Client extends GameEngine implements SwiftFUP, FileStore, AutoProce
                         if (i7 == -1) {
                             model = child.getModel(-1, -1, flag2);
                         } else {
-                            Animation animation = Animation.animations[i7];
-                            model = child.getModel(animation.secondaryFrameIds[child.anInt246], animation.primaryFrameIds[child.anInt246], flag2);
+              Animation animation = Animation.lookup(i7);
+              if (animation == null) {
+                model = child.getModel(-1, -1, flag2);
+              } else {
+                model = child.getModel(animation.secondaryFrameIds[child.anInt246], animation.primaryFrameIds[child.anInt246], flag2);
+              }
                         }
                         if (model != null) {
                             Rasterizer3D.world = false;
@@ -14709,8 +15121,11 @@ public class Client extends GameEngine implements SwiftFUP, FileStore, AutoProce
             }
 
             try {
-                if (player.graphicId != -1 && FrameBase.frameBases[Graphic.graphics[player.graphicId].animationSequence.primaryFrameIds[0] >> 16].length == 0) {
-                    onDemandFetcher.loadData(1, Graphic.graphics[player.graphicId].animationSequence.primaryFrameIds[0] >> 16);
+        if (player.graphicId != -1 && Graphic.graphics != null && player.graphicId >= 0 && player.graphicId < Graphic.graphics.length && Graphic.graphics[player.graphicId] != null && Graphic.graphics[player.graphicId].animationSequence != null) {
+          int frameBase = Graphic.graphics[player.graphicId].animationSequence.primaryFrameIds[0] >> 16;
+          if (frameBase >= 0 && frameBase < FrameBase.frameBases.length && FrameBase.frameBases[frameBase] != null && FrameBase.frameBases[frameBase].length == 0) {
+            onDemandFetcher.loadData(1, frameBase);
+          }
                 }
             } catch (final Exception e) {
                 e.printStackTrace();
@@ -14723,8 +15138,14 @@ public class Client extends GameEngine implements SwiftFUP, FileStore, AutoProce
                 animation = -1;
             }
             int delay = buffer.readNegUByte();
+            Animation nextAnimation = Animation.lookup(animation);
+            Animation currentAnimation = Animation.lookup(player.primarySeqID);
             if (animation == player.primarySeqID && animation != -1) {
-                int replayMode = Animation.animations[animation].type;
+				if (nextAnimation == null) {
+					player.primarySeqID = -1;
+					return;
+				}
+				int replayMode = nextAnimation.type;
                 if (replayMode == 1) {
                     player.primarySeqFrame = 0;
                     player.primarySeqCycle = 0;
@@ -14734,7 +15155,7 @@ public class Client extends GameEngine implements SwiftFUP, FileStore, AutoProce
                 if (replayMode == 2) {
                     player.animationLoops = 0;
                 }
-            } else if (animation == -1 || player.primarySeqID == -1 || Animation.animations[animation].priority >= Animation.animations[player.primarySeqID].priority) {
+			} else if (animation == -1 || currentAnimation == null || (nextAnimation != null && nextAnimation.priority >= currentAnimation.priority)) {
                 player.primarySeqID = animation;
                 player.primarySeqFrame = 0;
                 player.primarySeqCycle = 0;
@@ -14986,29 +15407,44 @@ public class Client extends GameEngine implements SwiftFUP, FileStore, AutoProce
 
     @Override
     public void draw(boolean redraw) {
-        callbacks.frame();
-        updateCamera();
+        try {
+            if (!DISABLE_RUNELITE_RENDER_HOOKS) {
+                try {
+                    callbacks.frame();
+                } catch (Throwable t) {
+                    OnDemandFetcher.debugWrite("[DRAW] callbacks.frame exception: " + t);
+                    t.printStackTrace();
+                }
+            }
+            updateCamera();
 
-        if (rsAlreadyLoaded || loadingError || genericLoadingError) {
-            showErrorScreen();
-            return;
-        }
+            if (rsAlreadyLoaded || loadingError || genericLoadingError) {
+                showErrorScreen();
+                return;
+            }
 
 
-        if (gameState == GameState.STARTING.getState()) {
+            if (gameState == GameState.STARTING.getState()) {
+                rasterProvider.drawFull(0, 0);
+            } else if (gameState == GameState.LOGIN_SCREEN.getState()) {
+                frameMode(false);
+                loginRenderer.display();
+            } else if (gameState == GameState.CONNECTION_LOST.getState()) {
+                drawLoadingMessage("Connection lost" + "<br>" + "Please wait - attempting to reestablish");
+            } else if (gameState == GameState.LOADING.getState()) {
+                drawLoadingMessage("Loading - please wait.");
+            } else if (gameState == GameState.LOGGED_IN.getState()) {
+                drawGameScreen();
+            }
+            long blitStart = System.nanoTime();
             rasterProvider.drawFull(0, 0);
-        } else if (gameState == GameState.LOGIN_SCREEN.getState()) {
-            frameMode(false);
-            loginRenderer.display();
-        } else if (gameState == GameState.CONNECTION_LOST.getState()) {
-            drawLoadingMessage("Connection lost" + "<br>" + "Please wait - attempting to reestablish");
-        } else if (gameState == GameState.LOADING.getState()) {
-            drawLoadingMessage("Loading - please wait.");
-        } else if (gameState == GameState.LOGGED_IN.getState()) {
-            drawGameScreen();
+            long blitEnd = System.nanoTime();
+            drawTimingBlitNs += (blitEnd - blitStart);
+            anInt1213 = 0;
+        } catch (Throwable t) {
+            OnDemandFetcher.debugWrite("[DRAW] Fatal exception in draw: " + t);
+            t.printStackTrace();
         }
-        rasterProvider.drawFull(0, 0);
-        anInt1213 = 0;
     }
 
     private boolean isFriendOrSelf(String s) {
@@ -15077,7 +15513,9 @@ public class Client extends GameEngine implements SwiftFUP, FileStore, AutoProce
         }
 
         announcement.draw();
-        fadingScreen.draw();
+        if (!DISABLE_RUNELITE_RENDER_HOOKS) {
+            fadingScreen.draw();
+        }
         // SkillOrbHandler.drawOrbs();
 
         if (showChatComponents) {
@@ -15371,7 +15809,12 @@ public class Client extends GameEngine implements SwiftFUP, FileStore, AutoProce
                     l = class9_1.anInt257;
                 }
                 if (l != -1) {
-                    Animation animation = Animation.animations[l];
+          Animation animation = Animation.lookup(l);
+          if (animation == null) {
+            class9_1.anInt246 = 0;
+            class9_1.anInt208 = 0;
+            continue;
+          }
                     for (class9_1.anInt208 += i; class9_1.anInt208 > animation.duration(class9_1.anInt246); ) {
                         class9_1.anInt208 -= animation.duration(class9_1.anInt246) + 1;
                         class9_1.anInt246++;
@@ -15635,12 +16078,18 @@ public class Client extends GameEngine implements SwiftFUP, FileStore, AutoProce
                 }
                 if (j1 == 14) {
                     int j2 = ai[l++];
-                    VarBit varBit = VarBit.varBits[j2];
-                    int l3 = varBit.index;
-                    int i4 = varBit.leastSignificantBit;
-                    int j4 = varBit.mostSignificantBit;
-                    int k4 = varBits[j4 - i4];
-                    k1 = settings[l3] >> i4 & k4;
+                    if (VarBit.varBits != null && j2 >= 0 && j2 < VarBit.varBits.length) {
+                        VarBit varBit = VarBit.varBits[j2];
+                        if (varBit != null) {
+                            int l3 = varBit.index;
+                            int i4 = varBit.leastSignificantBit;
+                            int j4 = varBit.mostSignificantBit;
+                            if (l3 >= 0 && l3 < settings.length && j4 >= i4 && (j4 - i4) < varBits.length) {
+                                int k4 = varBits[j4 - i4];
+                                k1 = settings[l3] >> i4 & k4;
+                            }
+                        }
+                    }
                 }
                 if (j1 == 15) {
                     byte0 = 1;
@@ -15866,8 +16315,15 @@ public class Client extends GameEngine implements SwiftFUP, FileStore, AutoProce
             int i3 = (anIntArray1073[j5] * 4 + 2) - localPlayer.y / 32;
             markMinimap(aClass30_Sub2_Sub1_Sub1Array1140[j5], k, i3);
         }
-        for (int k5 = 0; k5 < 104; k5++) {
-            for (int l5 = 0; l5 < 104; l5++) {
+        // Only scan nearby tiles for ground items on minimap (20-tile radius instead of full 104x104)
+        int playerTileX = localPlayer.x >> 7;
+        int playerTileY = localPlayer.y >> 7;
+        int scanMinX = Math.max(0, playerTileX - 20);
+        int scanMaxX = Math.min(104, playerTileX + 20);
+        int scanMinY = Math.max(0, playerTileY - 20);
+        int scanMaxY = Math.min(104, playerTileY + 20);
+        for (int k5 = scanMinX; k5 < scanMaxX; k5++) {
+            for (int l5 = scanMinY; l5 < scanMaxY; l5++) {
                 Deque class19 = groundArray[plane][k5][l5];
                 if (class19 != null) {
                     int l = (k5 * 4 + 2) - localPlayer.x / 32;
@@ -17252,6 +17708,11 @@ public class Client extends GameEngine implements SwiftFUP, FileStore, AutoProce
                     int skill = incoming.readUnsignedByte();
                     int level = incoming.method439();
                     int l15 = incoming.readUnsignedByte();
+                    if (skill < 0 || skill >= currentExp.length || skill >= currentStats.length || skill >= maxStats.length) {
+                        OnDemandFetcher.debugWrite("[PACKET] Ignoring invalid skill update id=" + skill + " level=" + level + " current=" + l15);
+                        opcode = -1;
+                        return true;
+                    }
                     currentExp[skill] = level;
                     currentStats[skill] = l15;
                     maxStats[skill] = 1;
@@ -17260,7 +17721,11 @@ public class Client extends GameEngine implements SwiftFUP, FileStore, AutoProce
                             maxStats[skill] = k20 + 2;
                         }
                     }
-                    callbacks.post(new StatChanged(Skill.values()[skill], level, 1, l15));
+                    if (skill < Skill.values().length) {
+                        callbacks.post(new StatChanged(Skill.values()[skill], level, 1, l15));
+                    } else {
+                        OnDemandFetcher.debugWrite("[PACKET] Skipping StatChanged callback for invalid skill enum index=" + skill);
+                    }
                     opcode = -1;
                     return true;
                 }
@@ -17270,6 +17735,11 @@ public class Client extends GameEngine implements SwiftFUP, FileStore, AutoProce
                     int j10 = incoming.readUByteA();
                     if (l1 == 65535) {
                         l1 = -1;
+                    }
+                    if (j10 < 0 || j10 >= tabInterfaceIDs.length) {
+                        OnDemandFetcher.debugWrite("[PACKET] Ignoring invalid sidebar tab index=" + j10 + " interface=" + l1);
+                        opcode = -1;
+                        return true;
                     }
                     tabInterfaceIDs[j10] = l1;
                     tabAreaAltered = true;
@@ -17303,6 +17773,7 @@ public class Client extends GameEngine implements SwiftFUP, FileStore, AutoProce
                     return true;
 
                 case 109:
+                    OnDemandFetcher.debugWrite("[PACKET] opcode=109 force logout");
                     resetLogout();
                     opcode = -1;
                     return false;
@@ -17319,6 +17790,7 @@ public class Client extends GameEngine implements SwiftFUP, FileStore, AutoProce
 
                 case 73:
                 case 241:
+                    OnDemandFetcher.debugWrite("[PACKET] opcode=" + opcode + " map region change");
                     setGameState(GameState.LOADING);
                     int regionChunkX = lastRegionChunkX;
                     int regionChunkY = lastRegionChunkY;
@@ -17969,6 +18441,11 @@ public class Client extends GameEngine implements SwiftFUP, FileStore, AutoProce
                     int i6 = incoming.readLEUShort();
                     int i13 = incoming.readUnsignedShort();
                     int k18 = incoming.readUnsignedShort();
+                    if (!isValidInterfaceIndex(i6)) {
+                        OnDemandFetcher.debugWrite("[PACKET] Ignoring item model update for invalid interface=" + i6 + " item=" + k18 + " zoom=" + i13);
+                        opcode = -1;
+                        return true;
+                    }
                     if (k18 == 65535) {
                         RSInterface.interfaceCache[i6].defaultMediaType = 0;
                         opcode = -1;
@@ -17979,7 +18456,7 @@ public class Client extends GameEngine implements SwiftFUP, FileStore, AutoProce
                         RSInterface.interfaceCache[i6].mediaID = k18;
                         RSInterface.interfaceCache[i6].modelRotation1 = itemDef.modelRotationY;
                         RSInterface.interfaceCache[i6].modelRotation2 = itemDef.modelRotationX;
-                        RSInterface.interfaceCache[i6].modelZoom = (itemDef.modelZoom * 100) / i13;
+                        RSInterface.interfaceCache[i6].modelZoom = i13 == 0 ? itemDef.modelZoom : (itemDef.modelZoom * 100) / i13;
                         opcode = -1;
                         return true;
                     }
@@ -18101,7 +18578,10 @@ public class Client extends GameEngine implements SwiftFUP, FileStore, AutoProce
                         String text = incoming.readString();
                         byte state = incoming.readSignedByte();
                         byte seconds = incoming.readSignedByte();
-                        fadingScreen = new FadingScreen(text, state, seconds);
+                        OnDemandFetcher.debugWrite("[PACKET] opcode=189 fade screen text='" + text + "' state=" + state + " seconds=" + seconds);
+                        if (!DISABLE_RUNELITE_RENDER_HOOKS) {
+                            fadingScreen = new FadingScreen(text, state, seconds);
+                        }
                     } catch (Exception e) {
                         e.printStackTrace();
                     }
@@ -18298,8 +18778,10 @@ public class Client extends GameEngine implements SwiftFUP, FileStore, AutoProce
                 case 122:
                     int intId = incoming.readLEUShortA();
                     int color = incoming.readUnsignedInt();
-                    if (RSInterface.interfaceCache[intId] != null) {
+                    if (isValidInterfaceIndex(intId)) {
                         RSInterface.interfaceCache[intId].textColor = color;
+                    } else {
+                        OnDemandFetcher.debugWrite("[PACKET] Ignoring color update for invalid interface=" + intId + " color=" + color);
                     }
                     opcode = -1;
                     return true;
@@ -18657,6 +19139,7 @@ public class Client extends GameEngine implements SwiftFUP, FileStore, AutoProce
             Utility.reporterror("T1 - " + opcode + "," + pktSize + " - " + lastOpcode2 + "," + lastOpcode3);
             // resetLogout();
         } catch (IOException _ex) {
+            OnDemandFetcher.debugWrite("[IO] parsePacket IOException: " + _ex);
             String errorStr;
 
             try (StringWriter sw = new StringWriter();
@@ -18675,6 +19158,7 @@ public class Client extends GameEngine implements SwiftFUP, FileStore, AutoProce
             _ex.printStackTrace();
             dropClient();
         } catch (Exception exception) {
+            OnDemandFetcher.debugWrite("[IO] parsePacket Exception: " + exception);
             Utility.reporterror(exception.toString());
             exception.printStackTrace();
             String errorStr = null;
@@ -18709,6 +19193,18 @@ public class Client extends GameEngine implements SwiftFUP, FileStore, AutoProce
     }
 
     private void drawGameWorld() {
+        if (loggedInRenderDebugCount < 3 && localPlayer != null) {
+            loggedInRenderDebugCount++;
+            OnDemandFetcher.debugWrite("[RENDER] drawGameWorld loadingStage=" + loadingStage
+                    + " pos=(" + localPlayer.x + "," + localPlayer.y + ") plane=" + plane
+                    + " viewport=" + getViewportWidth() + "x" + getViewportHeight()
+                    + " camera=(" + xCameraPos + "," + yCameraPos + "," + zCameraPos + ")");
+        }
+
+        rasterProvider.setRaster();
+        Rasterizer3D.scanOffsets = anIntArray1182;
+        Rasterizer3D.originViewX = getViewportWidth() / 2;
+        Rasterizer3D.originViewY = getViewportHeight() / 2;
         anInt1265++;
         method47(true);
         method26(true);
@@ -18774,8 +19270,24 @@ public class Client extends GameEngine implements SwiftFUP, FileStore, AutoProce
                 (!isResized() ? 4 : 0),
                 getViewportWidth(),
                 (!isResized() ? 4 : 0));
-        callbacks.post(BeforeRender.INSTANCE);
+        if (!DISABLE_RUNELITE_RENDER_HOOKS) {
+            callbacks.post(BeforeRender.INSTANCE);
+        }
+        final boolean traceLoggedInRender = loggedInRenderDebugCount <= 3;
+        final long renderStart = System.nanoTime();
+        if (traceLoggedInRender) {
+            OnDemandFetcher.debugWrite("[RENDER] stage=scene.render.begin tick=" + tick + " loadingStage=" + loadingStage);
+        }
         scene.render(xCameraPos, yCameraPos, xCameraCurve, zCameraPos, j, yCameraCurve);
+        final long afterSceneRender = System.nanoTime();
+        if (traceLoggedInRender) {
+            OnDemandFetcher.debugWrite("[RENDER] stage=scene.render.end dt=" + (System.currentTimeMillis() - renderStart) + "ms"
+                    + " tileUpdates=" + getTileUpdateCount()
+                    + " viewport=" + getViewportWidth() + "x" + getViewportHeight()
+                    + " camera=(" + xCameraPos + "," + yCameraPos + "," + zCameraPos + ")"
+                    + " curve=(" + xCameraCurve + "," + yCameraCurve + ")"
+                    + " loadingStage=" + loadingStage + " plane=" + plane);
+        }
         rasterProvider.setRaster();
         scene.clearGameObjectCache();
 
@@ -18783,18 +19295,34 @@ public class Client extends GameEngine implements SwiftFUP, FileStore, AutoProce
             renderParticles();
         }
 
+        final long entityStart = System.nanoTime();
+        if (traceLoggedInRender) {
+            OnDemandFetcher.debugWrite("[RENDER] stage=updateEntities.begin");
+        }
         updateEntities();
+        if (traceLoggedInRender) {
+            OnDemandFetcher.debugWrite("[RENDER] stage=updateEntities.end dt=" + (System.currentTimeMillis() - entityStart) + "ms");
+        }
         drawHeadIcon();
         ((TextureProvider) Rasterizer3D.textureLoader).animate(tickDelta);
         if (Settings.SNOW) {
             drawSnowflakes(0, 0);
         }
-        getCallbacks().draw(rasterProvider, rasterProvider.getImage().getGraphics(), !isResized() ? 4 : 0, !isResized() ? 4 : 0);
+        if (!DISABLE_RUNELITE_RENDER_HOOKS) {
+            getCallbacks().draw(rasterProvider, rasterProvider.getImage().getGraphics(), !isResized() ? 4 : 0, !isResized() ? 4 : 0);
 
-        callbacks.drawScene();
-        callbacks.drawAboveOverheads();
+            callbacks.drawScene();
+            callbacks.drawAboveOverheads();
+        }
 
+        if (traceLoggedInRender) {
+            OnDemandFetcher.debugWrite("[RENDER] stage=draw3dScreen.begin");
+        }
         draw3dScreen();
+        if (traceLoggedInRender) {
+            OnDemandFetcher.debugWrite("[RENDER] stage=draw3dScreen.end total=" + (System.currentTimeMillis() - renderStart) + "ms");
+        }
+        final long afterEntitiesUI = System.nanoTime();
 
         if (!isResized()) {
             leftFrame.method346(0, 4);
@@ -18807,8 +19335,24 @@ public class Client extends GameEngine implements SwiftFUP, FileStore, AutoProce
         drawChatArea();
         drawMinimap();
         drawTabArea();
+        final long afterUIChrome = System.nanoTime();
 
         viewportInterfaceCallback();
+
+        // Continuous render timing (every 200 frames)
+        drawTimingSceneNs += (afterSceneRender - renderStart);
+        drawTimingEntitiesNs += (afterEntitiesUI - afterSceneRender);
+        drawTimingUINs += (afterUIChrome - afterEntitiesUI);
+        drawTimingFrameCount++;
+        if (drawTimingFrameCount >= 200) {
+            long avgScene = drawTimingSceneNs / drawTimingFrameCount / 1_000_000;
+            long avgEntities = drawTimingEntitiesNs / drawTimingFrameCount / 1_000_000;
+            long avgUI = drawTimingUINs / drawTimingFrameCount / 1_000_000;
+            long avgBlit = drawTimingBlitNs / drawTimingFrameCount / 1_000_000;
+            System.out.println("[DRAW] scene=" + avgScene + "ms entities=" + avgEntities + "ms ui=" + avgUI + "ms blit=" + avgBlit + "ms");
+            drawTimingSceneNs = drawTimingEntitiesNs = drawTimingUINs = drawTimingBlitNs = 0;
+            drawTimingFrameCount = 0;
+        }
 
         xCameraPos = l;
         zCameraPos = i1;
@@ -18818,6 +19362,9 @@ public class Client extends GameEngine implements SwiftFUP, FileStore, AutoProce
     }
 
     private void viewportInterfaceCallback() {
+        if (DISABLE_RUNELITE_RENDER_HOOKS) {
+            return;
+        }
         if (!isResized()) {
             callbacks.drawInterface(WidgetID.FIXED_VIEWPORT_GROUP_ID, Collections.emptyList());
         } else {

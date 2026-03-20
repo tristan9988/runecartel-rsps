@@ -518,14 +518,30 @@ public final class NpcDefinition {
         try {
             int j = -1;
             if (transformVarbit != -1) {
+                if (VarBit.varBits == null || transformVarbit < 0 || transformVarbit >= VarBit.varBits.length) {
+                    return null;
+                }
                 VarBit varBit = VarBit.varBits[transformVarbit];
+                if (varBit == null) {
+                    return null;
+                }
                 int k = varBit.index;
+                if (k < 0 || k >= clientInstance.settings.length) {
+                    return null;
+                }
                 int l = varBit.leastSignificantBit;
                 int i1 = varBit.mostSignificantBit;
+                if (i1 < l || (i1 - l) >= Client.varBits.length) {
+                    return null;
+                }
                 int j1 = Client.varBits[i1 - l];
                 j = clientInstance.settings[k] >> l & j1;
-            } else if (transformVarp != -1)
+            } else if (transformVarp != -1) {
+                if (transformVarp < 0 || transformVarp >= clientInstance.settings.length) {
+                    return null;
+                }
                 j = clientInstance.settings[transformVarp];
+            }
             if (j < 0 || j >= childrenIDs.length || childrenIDs[j] == -1)
                 return null;
             else

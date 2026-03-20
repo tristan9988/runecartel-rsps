@@ -94,6 +94,7 @@ public final class SendNpcUpdate extends OutgoingPacket {
 
         } catch (Exception ex) {
             ex.printStackTrace();
+            return false;
         } finally {
             maskBuf.release();
         }

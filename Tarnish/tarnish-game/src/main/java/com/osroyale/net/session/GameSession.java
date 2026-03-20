@@ -30,6 +30,8 @@ public final class GameSession extends Session {
     private final MessagePassingQueue<GamePacket> outgoingPackets
             = new MpscArrayQueue<>(Config.SERVER_PACKET_THRESHOLD);
 
+    private int debugServerPacketsLogged;
+
     GameSession(Channel channel, Player player) {
         super(channel);
         this.player = player;
@@ -71,6 +73,10 @@ public final class GameSession extends Session {
 
     public void queueServerPacket(GamePacket packet) {
         outgoingPackets.offer(packet);
+        if (debugServerPacketsLogged < 40) {
+            debugServerPacketsLogged++;
+            logger.info("queueServerPacket player={} opcode={} size={}", player.getName(), packet.getOpcode(), packet.getSize());
+        }
     }
 
     public void processServerPacketQueue() {

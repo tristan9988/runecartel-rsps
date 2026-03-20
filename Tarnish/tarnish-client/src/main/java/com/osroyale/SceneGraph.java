@@ -1114,7 +1114,9 @@ final class SceneGraph implements RSScene {
 	}
 
 	private static final int INVALID_HSL_COLOR = 12345678;
-	private static final int DEFAULT_DISTANCE = 25;
+	// Reduced from 18 to 12 for better software rendering performance
+	private static final int DEFAULT_DISTANCE = 12;
+	private static final int VISIBILITY_MAP_OFFSET = 25;
 	private static final int PITCH_LOWER_LIMIT = 128;
 	private static final int PITCH_UPPER_LIMIT = 383;
 
@@ -1339,7 +1341,7 @@ final class SceneGraph implements RSScene {
 
 						RSTile var30 = tileArray[Client.instance.getPlane()][x][y];
 						if (tile.getPhysicalLevel() > planeZ && roofRemovalMode == 0
-								|| !isGpu && !renderArea[x - screenCenterX + DEFAULT_DISTANCE][y - screenCenterZ + DEFAULT_DISTANCE]
+								|| !isGpu && !renderArea[x - screenCenterX + VISIBILITY_MAP_OFFSET][y - screenCenterZ + VISIBILITY_MAP_OFFSET]
 								&& tileHeights[z][x][y] - cameraYPos < 2000
 								|| roofRemovalMode != 0 && Client.instance.getPlane() < tile.getPhysicalLevel()
 								&& tilesToRemove.contains(var30))
@@ -2708,7 +2710,7 @@ final class SceneGraph implements RSScene {
 	private final int sizeX;
 	private final int sizeY;
 	private final int[][][] heightMap;
-	private final Tile[][][] tileArray;
+	final Tile[][][] tileArray;
 	private int minLevel;
 	private int obj5CacheCurrPos;
 	private final GameObject[] gameObjectsCache;
@@ -2884,7 +2886,7 @@ final class SceneGraph implements RSScene {
 
 	@Override
 	public void draw(net.runelite.api.Tile tile, boolean var2) {
-		drawTile((Tile) tile, false);
+		drawTile((Tile) tile, var2);
 	}
 
 	@Override
@@ -2914,7 +2916,7 @@ final class SceneGraph implements RSScene {
 
 	@Override
 	public void drawTile(int[] pixels, int pixelOffset, int width, int z, int x, int y) {
-
+		drawTileMinimap(pixels, pixelOffset, z, x, y);
 	}
 
 	@Override
@@ -2949,23 +2951,29 @@ final class SceneGraph implements RSScene {
 
 	@Override
 	public void newGroundItemPile(int plane, int x, int y, int hash, RSRenderable var5, long var6, RSRenderable var7, RSRenderable var8) {
-
+		method281(x, var6, (Renderable) var5, hash, (Renderable) var7, (Renderable) var8, plane, y);
 	}
 
 	@Override
 	public boolean newGameObject(int plane, int startX, int startY, int var4, int var5, int centerX, int centerY,
 								 int height, RSRenderable entity, int orientation, boolean tmp, long tag, int flags) {
-		return false;
+		return method287(plane, startX, startY, var4, var5, centerX, centerY, height, (Renderable) entity, orientation, tmp, tag);
 	}
 
 	@Override
 	public void removeGameObject(net.runelite.api.GameObject gameObject) {
-		removeGameObject(gameObject.getPlane(),gameObject.getX(),gameObject.getY());
+		if (gameObject instanceof GameObject)
+		{
+			method289((GameObject) gameObject);
+			return;
+		}
+
+		removeGameObject(gameObject.getPlane(), gameObject.getSceneMinLocation().getX(), gameObject.getSceneMinLocation().getY());
 	}
 
 	@Override
 	public void removeGameObject(int plane, int x, int y) {
-
+		method293(plane, x, y);
 	}
 
 
@@ -2988,53 +2996,32 @@ final class SceneGraph implements RSScene {
 
 	@Override
 	public void removeWallObject(int plane, int x, int y) {
-
+		method291(x, plane, y, (byte) -119);
 	}
 
 	@Override
 	public void removeDecorativeObject(DecorativeObject decorativeObject)
 	{
-		final RSTile[][][] tiles = getTiles();
-
-		for (int y = 0; y < 104; ++y)
-		{
-			for (int x = 0; x < 104; ++x)
-			{
-				RSTile tile = tiles[Client.instance.getPlane()][x][y];
-				if (tile != null && tile.getDecorativeObject() == decorativeObject)
-				{
-					tile.setDecorativeObject(null);
-				}
-			}
-		}
+		LocalPoint localPoint = decorativeObject.getLocalLocation();
+		removeDecorativeObject(decorativeObject.getPlane(), localPoint.getSceneX(), localPoint.getSceneY());
 	}
 
 	@Override
 	public void removeDecorativeObject(int plane, int x, int y) {
-
+		method292(y, plane, x);
 	}
 
 
 	@Override
 	public void removeGroundObject(GroundObject groundObject)
 	{
-		final RSTile[][][] tiles = getTiles();
-
-		for (int y = 0; y < 104; ++y)
-		{
-			for (int x = 0; x < 104; ++x)
-			{
-				RSTile tile = tiles[Client.instance.getPlane()][x][y];
-				if (tile != null && tile.getGroundObject() == groundObject)
-				{
-					tile.setGroundObject(null);
-				}
-			}
-		}
+		LocalPoint localPoint = groundObject.getLocalLocation();
+		removeGroundObject(groundObject.getPlane(), localPoint.getSceneX(), localPoint.getSceneY());
 	}
 
 	@Override
 	public void removeGroundObject(int plane, int x, int y) {
+		method294(plane, y, x);
 	}
 
 	@Override
@@ -3069,7 +3056,7 @@ final class SceneGraph implements RSScene {
 
 	@Override
 	public void menuOpen(int selectedPlane, int screenX, int screenY, boolean viewportWalking) {
-
+		// Intentionally left non-invasive: this client reuses the selected tile fields for click-to-walk.
 	}
 
 	public Tile getSelectedSceneTile() {

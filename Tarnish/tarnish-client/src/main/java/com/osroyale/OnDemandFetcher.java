@@ -2,7 +2,14 @@ package com.osroyale;
 
 import org.jire.swiftfup.client.FileRequest;
 
+import java.io.ByteArrayInputStream;
+import java.io.ByteArrayOutputStream;
+import java.io.IOException;
+import java.util.zip.GZIPInputStream;
+
 public final class OnDemandFetcher {
+
+    private static final boolean FILE_DEBUG_LOGGING = false;
 
     private final Client client;
 
@@ -54,10 +61,40 @@ public final class OnDemandFetcher {
         return loadData(indexID, fileID, true);
     }
 
+    public static void debugWrite(String msg) {
+        if (!FILE_DEBUG_LOGGING) {
+            return;
+        }
+        try {
+            java.io.FileWriter fw = new java.io.FileWriter(System.getProperty("user.home") + "/.runecartel/debug.txt", true);
+            fw.write(msg + "\n");
+            fw.close();
+        } catch (Exception e) {}
+    }
+
     public boolean loadData(int indexID, int fileID, boolean flush) {
         // Only use fileClient if update server is enabled and fileClient is initialized
         if (!Configuration.USE_UPDATE_SERVER || client.fileClient == null) {
-            // Data should already be in local cache
+            // Read directly from local cache file stores
+            int fileStoreIndex = indexID + 1;
+            if (fileStoreIndex >= 0 && fileStoreIndex < client.fileStores.length && client.fileStores[fileStoreIndex] != null) {
+                byte[] data = client.fileStores[fileStoreIndex].readFile(fileID);
+                data = tryGunzip(data);
+                switch (indexID) {
+                    case 0: // Models
+                        Model.loadModel(data, fileID);
+                        break;
+                    case 1: // Animations
+                        if (data != null) {
+                            Frame.loadFrames(fileID, data);
+                        }
+                        break;
+                    // case 2: Music - not needed for loading
+                    // case 3: Maps - handled in Client.method54
+                }
+            } else {
+                debugWrite("loadData idx=" + indexID + " file=" + fileID + " FILESTORE NULL");
+            }
             return true;
         }
         //System.out.println("REQUESTED " + indexID + ":" + fileID + " (flush=" + flush + ")");
@@ -105,6 +142,29 @@ public final class OnDemandFetcher {
     public OnDemandFetcher(final Client client) {
         this.client = client;
         versions = new int[4][];
+    }
+
+    private static byte[] tryGunzip(byte[] data) {
+        if (data == null || data.length < 2) {
+            return data;
+        }
+
+        if ((data[0] & 0xFF) != 0x1F || (data[1] & 0xFF) != 0x8B) {
+            return data;
+        }
+
+        try (GZIPInputStream gzipInputStream = new GZIPInputStream(new ByteArrayInputStream(data));
+             ByteArrayOutputStream outputStream = new ByteArrayOutputStream(data.length)) {
+            byte[] buffer = new byte[4096];
+            int read;
+            while ((read = gzipInputStream.read(buffer)) != -1) {
+                outputStream.write(buffer, 0, read);
+            }
+            return outputStream.toByteArray();
+        } catch (IOException e) {
+            debugWrite("loadData gunzip failed: " + e);
+            return null;
+        }
     }
 
     private int[] landscapes;

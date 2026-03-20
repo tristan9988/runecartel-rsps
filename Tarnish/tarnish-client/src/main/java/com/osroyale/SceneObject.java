@@ -20,16 +20,28 @@ public final class SceneObject extends Renderable {
 	private ObjectDefinition getDefinition() {
 		int index = -1;
 		if (varbitId != -1) {
-			try {
-				VarBit varBit = VarBit.varBits[varbitId];
-				int k = varBit.index;
-				int l = varBit.leastSignificantBit;
-				int i1 = varBit.mostSignificantBit;
-				int j1 = Client.varBits[i1 - l];
-				index = clientInstance.settings[k] >> l & j1;
-			} catch (Exception ex) {
+			if (VarBit.varBits == null || varbitId < 0 || varbitId >= VarBit.varBits.length) {
+				return null;
 			}
+			VarBit varBit = VarBit.varBits[varbitId];
+			if (varBit == null) {
+				return null;
+			}
+			int k = varBit.index;
+			if (k < 0 || k >= clientInstance.settings.length) {
+				return null;
+			}
+			int l = varBit.leastSignificantBit;
+			int i1 = varBit.mostSignificantBit;
+			if (i1 < l || (i1 - l) >= Client.varBits.length) {
+				return null;
+			}
+			int j1 = Client.varBits[i1 - l];
+			index = clientInstance.settings[k] >> l & j1;
 		} else if (configId != -1) {
+			if (configId < 0 || configId >= clientInstance.settings.length) {
+				return null;
+			}
 			index = clientInstance.settings[configId];
 		}
 		if (index < 0 || index >= configs.length || configs[index] == -1) {

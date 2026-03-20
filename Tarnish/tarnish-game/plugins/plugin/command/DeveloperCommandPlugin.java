@@ -336,14 +336,17 @@ public class DeveloperCommandPlugin extends CommandExtension {
                     // 1 game tick = 600ms, so 1 minute = 60000ms / 600 = 100 ticks
                     int ticks = minutes * 100;
                     World.update(ticks);
-                    player.send(new SendMessage("Server will update in " + minutes + " minute" + (minutes == 1 ? "" : "s") + "."));
-                    player.send(new SendMessage("Server, Client, and Cache will all be rebuilt."));
-                    
-                    // Schedule the full update script to run when server shuts down
-                    // This is handled by auto-update-restart.bat which calls UPDATE-ALL.bat
+                    player.send(new SendMessage("<col=00ff00>System update in " + minutes + " minute" + (minutes == 1 ? "" : "s") + "."));
+                    player.send(new SendMessage("<col=00ff00>When the timer ends:"));
+                    player.send(new SendMessage("<col=00ff00>  1. Server shuts down & saves all players"));
+                    player.send(new SendMessage("<col=00ff00>  2. Client is rebuilt & published to GitHub"));
+                    player.send(new SendMessage("<col=00ff00>  3. Cache is packaged & published to GitHub"));
+                    player.send(new SendMessage("<col=00ff00>  4. Server is rebuilt & restarted"));
+                    player.send(new SendMessage("<col=00ff00>  Players will get the new client/cache on next launcher open."));
                 } else {
-                    player.send(new SendMessage("Usage: ::update minutes (e.g. ::update 2)"));
-                    player.send(new SendMessage("This will rebuild server, client, and cache."));
+                    player.send(new SendMessage("Usage: ::update [minutes]"));
+                    player.send(new SendMessage("Example: ::update 2"));
+                    player.send(new SendMessage("This rebuilds server, client, cache and pushes to GitHub."));
                 }
             }
         });

@@ -12,7 +12,7 @@ final class BufferedConnection implements Runnable {
 		isWriter = false;
 		hasIOError = false;
 		socket = socket1;
-		socket.setSoTimeout(30000);
+		socket.setSoTimeout(0);
 		socket.setTcpNoDelay(true);
 		socket.setReceiveBufferSize(2 << 15);
 		socket.setSendBufferSize(2 << 15);
@@ -78,6 +78,7 @@ final class BufferedConnection implements Runnable {
 			return;
 		if (hasIOError) {
 			hasIOError = false;
+			OnDemandFetcher.debugWrite("[SOCKET] queueBytes detected writer thread error");
 			throw new IOException("Error in writer thread");
 		}
 		if (buffer == null)
@@ -86,8 +87,10 @@ final class BufferedConnection implements Runnable {
 			for (int l = 0; l < i; l++) {
 				buffer[buffIndex] = abyte0[l];
 				buffIndex = (buffIndex + 1) % 5000;
-				if (buffIndex == (writeIndex + 4900) % 5000)
+				if (buffIndex == (writeIndex + 4900) % 5000) {
+					OnDemandFetcher.debugWrite("[SOCKET] queueBytes buffer overflow (queued=" + i + ", writeIndex=" + writeIndex + ", buffIndex=" + buffIndex + ")");
 					throw new IOException("buffer overflow");
+				}
 			}
 
 			if (!isWriter) {
@@ -122,6 +125,7 @@ final class BufferedConnection implements Runnable {
 				try {
 					outputStream.write(buffer, j, i);
 				} catch (IOException _ex) {
+					OnDemandFetcher.debugWrite("[SOCKET] writer thread outputStream.write failed: " + _ex);
 					hasIOError = true;
 				}
 				writeIndex = (writeIndex + i) % 5000;
@@ -129,6 +133,7 @@ final class BufferedConnection implements Runnable {
 					if (buffIndex == writeIndex)
 						outputStream.flush();
 				} catch (IOException _ex) {
+					OnDemandFetcher.debugWrite("[SOCKET] writer thread outputStream.flush failed: " + _ex);
 					hasIOError = true;
 				}
 			}

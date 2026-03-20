@@ -14,6 +14,7 @@ import static com.osroyale.Configuration.CHAR_PATH;
  */
 public final class Settings {
     private final static String FILE_NAME = "settings.dat";
+    private static final boolean FORCE_LITE_MODE = Boolean.getBoolean("runecartel.lite");
 
     public static boolean REMEMBER_ME = true;
     public static boolean DRAW_BUBBLE;
@@ -58,6 +59,34 @@ public final class Settings {
     static boolean DISPLAY_FPS = false;
     static boolean VALUE_ICONS = true;
     static boolean SHIFT_DROP = true;
+
+    public static void applyLiteProfile() {
+        CUSTOM_LIGHTING = false;
+        HD_MINIMAP = false;
+        TWEENING = false;
+        GROUND_DECORATIONS = false;
+        MIPMAPPING = false;
+        FOG = false;
+        SMOOTH_SHADING = false;
+        SNOW = false;
+        PARTICLES = false;
+        MOVING_TEXTURE = false;
+        DISPLAY_NAMES = false;
+        DISPLAY_CLAN_TAG = false;
+        DISPLAY_KILL_FEED = false;
+        DISPLAY_GROUND_ITEM = false;
+        ITEM_RARITY_COLOR = false;
+        EXPERIENCE_ORBS = false;
+        DISPLAY_PING = false;
+        DISPLAY_FPS = true; // Show FPS so users can see performance
+        VALUE_ICONS = false;
+        ENTITY_FEED = false;
+        NOTIFICATION_FEED = false;
+        WIDGET = false;
+        DAMAGE_MULTIPLIER = false;
+        MINIMAP_RANK = false;
+        RESIZABLE = false; // Force fixed mode - resizable is too slow for software rendering
+    }
 
     public static volatile boolean FIRST_CLIENT_START = true;
     public static volatile boolean RESIZABLE = false;
@@ -445,6 +474,9 @@ public final class Settings {
         try {
             final Path path = Path.of(CHAR_PATH, FILE_NAME);
             if (!Files.exists(path)) {
+                if (FORCE_LITE_MODE) {
+                    applyLiteProfile();
+                }
                 return;
             }
 
@@ -459,6 +491,10 @@ public final class Settings {
             }
         } catch (final Exception e) {
             e.printStackTrace();
+        }
+
+        if (FORCE_LITE_MODE) {
+            applyLiteProfile();
         }
 
         Settings.FIRST_CLIENT_START = false;

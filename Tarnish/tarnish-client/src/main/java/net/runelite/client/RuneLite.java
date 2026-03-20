@@ -91,6 +91,8 @@ import static java.nio.file.StandardCopyOption.COPY_ATTRIBUTES;
 @DoNotRename
 public class RuneLite
 {
+	private static final boolean DISABLE_PLUGIN_SYSTEM = true;
+
 	public static final File RUNELITE_DIR = new File(System.getProperty("user.home"), Configuration.CACHE_NAME);
 	public static final File CACHE_DIR = new File(RUNELITE_DIR, "cache");
 	public static final File PLUGINS_DIR = new File(RUNELITE_DIR, "plugins");
@@ -217,17 +219,15 @@ public class RuneLite
 		parser.accepts("help", "Show this text").forHelp();
 		OptionSet options = parser.parse(args);
 
+		final Logger logger = (Logger) LoggerFactory.getLogger(Logger.ROOT_LOGGER_NAME);
+		logger.setLevel(options.has("debug") ? Level.DEBUG : Level.INFO);
+
 		if (options.has("help"))
 		{
 			parser.printHelpOn(System.out);
 			System.exit(0);
 		}
 
-		if (options.has("debug"))
-		{
-			final Logger logger = (Logger) LoggerFactory.getLogger(Logger.ROOT_LOGGER_NAME);
-			logger.setLevel(Level.DEBUG);
-		}
 
 		Thread.setDefaultUncaughtExceptionHandler((thread, throwable) ->
 		{
@@ -360,39 +360,57 @@ public class RuneLite
 		// Tell the plugin manager if client is outdated or not
 		pluginManager.setOutdated(isOutdated);
 
-		// Load the plugins, but does not start them yet.
-		// This will initialize configuration
-		pluginManager.loadCorePlugins();
-		pluginManager.loadSideLoadPlugins();
-		externalPluginManager.loadExternalPlugins();
+		if (!DISABLE_PLUGIN_SYSTEM)
+		{
+			// Load the plugins, but does not start them yet.
+			// This will initialize configuration
+			pluginManager.loadCorePlugins();
+			pluginManager.loadSideLoadPlugins();
+			externalPluginManager.loadExternalPlugins();
+		}
 
 		SplashScreen.stage(.70, null, "Finalizing configuration");
 
-		// Plugins have provided their config, so set default config
-		// to main settings
-		pluginManager.loadDefaultPluginConfiguration(null);
+		if (!DISABLE_PLUGIN_SYSTEM)
+		{
+			// Plugins have provided their config, so set default config
+			// to main settings
+			pluginManager.loadDefaultPluginConfiguration(null);
+		}
 
-		// Start client session
-		clientSessionManager.start();
-		eventBus.register(clientSessionManager);
+		if (!DISABLE_PLUGIN_SYSTEM)
+		{
+			// Start client session
+			clientSessionManager.start();
+			eventBus.register(clientSessionManager);
+		}
 
 		SplashScreen.stage(.75, null, "Starting core interface");
 
 		// Initialize UI
 		clientUI.init();
 
-		// Initialize Discord service
-		discordService.init();
+		if (!DISABLE_PLUGIN_SYSTEM)
+		{
+			// Initialize Discord service
+			discordService.init();
+		}
 
 		// Register event listeners
 		eventBus.register(clientUI);
-		eventBus.register(pluginManager);
-		eventBus.register(externalPluginManager);
-		eventBus.register(overlayManager);
+		if (!DISABLE_PLUGIN_SYSTEM)
+		{
+			eventBus.register(pluginManager);
+			eventBus.register(externalPluginManager);
+			eventBus.register(overlayManager);
+		}
 		eventBus.register(configManager);
-		eventBus.register(discordService);
+		if (!DISABLE_PLUGIN_SYSTEM)
+		{
+			eventBus.register(discordService);
+		}
 
-		if (!isOutdated)
+		if (!isOutdated && !DISABLE_PLUGIN_SYSTEM)
 		{
 			// Add core overlays
 			WidgetOverlay.createOverlays(overlayManager, client).forEach(overlayManager::add);
@@ -400,8 +418,11 @@ public class RuneLite
 			overlayManager.add(tooltipOverlay.get());
 		}
 
-		// Start plugins
-		pluginManager.startPlugins();
+		if (!DISABLE_PLUGIN_SYSTEM)
+		{
+			// Start plugins
+			pluginManager.startPlugins();
+		}
 
 		SplashScreen.stop();
 

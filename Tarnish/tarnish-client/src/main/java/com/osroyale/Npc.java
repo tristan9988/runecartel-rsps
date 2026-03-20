@@ -26,24 +26,37 @@ public final class Npc extends Entity implements RSNPC {
             int nextCycle = -1;
             //System.err.println("NPC " + definition.name + " has " + primarySeqID + "/" + secondarySeqID + " and stand " + seqStandID);
             if (super.primarySeqID >= 0 && super.primarySeqDelay == 0) {
-                final Animation primarySeq = Animation.animations[super.primarySeqID];
+				final Animation primarySeq = Animation.lookup(super.primarySeqID);
+				if (primarySeq == null) {
+					super.primarySeqID = -1;
+				} else {
                 final boolean skeletal = primarySeq.isSkeletalAnimation();
                 Animation secondarySeq = null;
                 if (!skeletal) {
-                    if (tween && super.nextAnimationFrame < primarySeq.frameCount) {
+                    if (tween && primarySeq.primaryFrameIds != null && super.nextAnimationFrame < primarySeq.primaryFrameIds.length) {
                         nextId = primarySeq.primaryFrameIds[super.nextAnimationFrame];
-                        currCycle = primarySeq.frameDelays[super.primarySeqFrame];
+                        if (primarySeq.frameDelays != null && super.primarySeqFrame < primarySeq.frameDelays.length) {
+                            currCycle = primarySeq.frameDelays[super.primarySeqFrame];
+                        }
                         nextCycle = super.primarySeqCycle;
                     }
                 }
-                primaryId = primarySeq.isSkeletalAnimation()
-                        ? primarySeq.getSkeletalFrameId()
-                        : primarySeq.primaryFrameIds[super.primarySeqFrame];
+                if (primarySeq.isSkeletalAnimation()) {
+                    primaryId = primarySeq.getSkeletalFrameId();
+                } else if (primarySeq.primaryFrameIds != null && super.primarySeqFrame < primarySeq.primaryFrameIds.length) {
+                    primaryId = primarySeq.primaryFrameIds[super.primarySeqFrame];
+                }
                 if (super.secondarySeqID >= 0 && super.secondarySeqID != super.seqStandID) {
-                    secondarySeq = Animation.animations[super.secondarySeqID];
-                    idleAnim = secondarySeq.isSkeletalAnimation()
-                            ? secondarySeq.getSkeletalFrameId()
-                            : secondarySeq.primaryFrameIds[super.secondarySeqFrame];
+					secondarySeq = Animation.lookup(super.secondarySeqID);
+					if (secondarySeq == null) {
+						super.secondarySeqID = super.seqStandID;
+					} else {
+                    if (secondarySeq.isSkeletalAnimation()) {
+                        idleAnim = secondarySeq.getSkeletalFrameId();
+                    } else if (secondarySeq.primaryFrameIds != null && super.secondarySeqFrame < secondarySeq.primaryFrameIds.length) {
+                        idleAnim = secondarySeq.primaryFrameIds[super.secondarySeqFrame];
+                    }
+					}
                 }
                 // double anim
                 if (primarySeq.isSkeletalAnimation() || (secondarySeq != null && secondarySeq.isSkeletalAnimation())) {
@@ -53,24 +66,33 @@ public final class Npc extends Entity implements RSNPC {
                 }
                 /*return definition.getAnimatedModel(idleAnim, primaryId, nextId, currCycle, nextCycle,
                         primarySeq.interleaveOrder, false);*/
+				} // end else (primarySeq != null)
             }
             Animation secondarySeq = null;
             if (primaryId == -1 && super.secondarySeqID >= 0) {
-                secondarySeq = Animation.animations[super.secondarySeqID];
+        secondarySeq = Animation.lookup(super.secondarySeqID);
+        if (secondarySeq == null) {
+          super.secondarySeqID = super.seqStandID;
+        } else {
                 if (secondarySeq.isSkeletalAnimation()) {
                     //System.err.println("secondarySeq=" + secondarySeq.getSkeletalFrameId() + ", which is for " + secondarySeqID + " cycle " + primarySeqFrame + " / " + secondarySeqFrame);
                     return definition.getAnimatedModel(secondarySeq.getSkeletalFrameId(), -1, nextId,
                             primarySeqFrame, secondarySeqFrame, null, true);
                 }
-                primaryId = secondarySeq.primaryFrameIds[super.secondarySeqFrame];
-                if (tween && super.nextIdleFrame < secondarySeq.frameCount) {
+                if (secondarySeq.primaryFrameIds != null && super.secondarySeqFrame < secondarySeq.primaryFrameIds.length) {
+                    primaryId = secondarySeq.primaryFrameIds[super.secondarySeqFrame];
+                }
+                if (tween && secondarySeq.primaryFrameIds != null && super.nextIdleFrame < secondarySeq.primaryFrameIds.length) {
                     nextId = secondarySeq.primaryFrameIds[super.nextIdleFrame];
-                    currCycle = secondarySeq.frameDelays[super.secondarySeqFrame];
+                    if (secondarySeq.frameDelays != null && super.secondarySeqFrame < secondarySeq.frameDelays.length) {
+                        currCycle = secondarySeq.frameDelays[super.secondarySeqFrame];
+                    }
                     nextCycle = super.secondarySeqCycle;
                 }
+        } // end else (secondarySeq != null)
             }
             return definition.getAnimatedModel(idleAnim, primaryId, nextId, currCycle, nextCycle,
-                    primaryId != -1 && idleAnim != -1 ? Animation.animations[super.primarySeqID].interleaveOrder : null,
+					primaryId != -1 && idleAnim != -1 && Animation.lookup(super.primarySeqID) != null ? Animation.lookup(super.primarySeqID).interleaveOrder : null,
                     false);
         } catch (Exception e) {
             e.printStackTrace();
@@ -86,9 +108,19 @@ public final class Npc extends Entity implements RSNPC {
             return null;
         super.height = animatedModel.modelBaseY;
         if (super.graphicId != -1 && super.currentAnimationId != -1) {
-            Graphic spotAnim = Graphic.graphics[super.graphicId];
+      if (Graphic.graphics == null || super.graphicId < 0 || super.graphicId >= Graphic.graphics.length) {
+        super.graphicId = -1;
+        return animatedModel;
+      }
+      Graphic spotAnim = Graphic.graphics[super.graphicId];
+      if (spotAnim == null || spotAnim.animationSequence == null) {
+        super.graphicId = -1;
+        return animatedModel;
+      }
             Model model_1 = spotAnim.getModel();
-            if (model_1 != null) {
+            if (model_1 != null && spotAnim.animationSequence.primaryFrameIds != null
+                    && super.currentAnimationId >= 0
+                    && super.currentAnimationId < spotAnim.animationSequence.primaryFrameIds.length) {
                 int frame = spotAnim.animationSequence.primaryFrameIds[super.currentAnimationId];
                 Model graphic = new Model(true, Frame.hasAlphaTransform(frame), false, model_1);
                 graphic.offsetBy(0, -super.graphicHeight, 0);

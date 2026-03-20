@@ -165,7 +165,7 @@ public final class RegionDecoder implements Runnable {
             for (int localX = 0; localX < 64; localX++) {
                 for (int localY = 0; localY < 64; localY++) {
                     while (true) {
-                        int attributeId = mapBuffer.getShort() & 0xFFFF;
+                    int attributeId = mapBuffer.getShort() & 0xFFFF;
                         if (attributeId == 0) {
                             break;
                         }
@@ -174,7 +174,7 @@ public final class RegionDecoder implements Runnable {
                             break;
                         }
                         if (attributeId <= 49) {
-                            int overlayId = mapBuffer.getShort() & 0xFFFF;
+                                      int overlayId = mapBuffer.getShort() & 0xFFFF;
                         } else if (attributeId <= 81) {
                             attributes[height][localX][localY] = attributeId - 49;
                         }

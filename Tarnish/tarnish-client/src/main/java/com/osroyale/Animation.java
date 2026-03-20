@@ -8,6 +8,23 @@ import java.util.Arrays;
 
 public final class Animation {
 
+    private static int invalidAnimationDebugCount;
+
+    public static Animation lookup(int id) {
+        if (id < 0) {
+            return null;
+        }
+        final Animation[] animations = Animation.animations;
+        if (animations == null || id >= animations.length) {
+            if (invalidAnimationDebugCount < 25) {
+                invalidAnimationDebugCount++;
+                OnDemandFetcher.debugWrite("[ANIM] Invalid animation id=" + id + " len=" + (animations == null ? "null" : animations.length));
+            }
+            return null;
+        }
+        return animations[id];
+    }
+
     static void unpackConfig(final StreamLoader streamLoader) {
         final Buffer stream = new Buffer(streamLoader.getFile("seq.dat"));
 

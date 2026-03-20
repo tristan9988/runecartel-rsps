@@ -73,6 +73,12 @@ public class DrawManager
 			}
 		}
 
+		// Only process the expensive image copy if there are actually listeners waiting
+		if (nextFrame.isEmpty())
+		{
+			return;
+		}
+
 		Consumer<Image> nextFrameListener = nextFrame.poll();
 		Image image = null;
 		while (nextFrameListener != null)

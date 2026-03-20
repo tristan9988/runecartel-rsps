@@ -445,14 +445,30 @@ public final class ObjectDefinition {
 	public ObjectDefinition getTransformed() {
 		int i = -1;
 		if (varbit != -1) {
+			if (VarBit.varBits == null || varbit < 0 || varbit >= VarBit.varBits.length) {
+				return null;
+			}
 			VarBit varBit = VarBit.varBits[varbit];
+			if (varBit == null) {
+				return null;
+			}
 			int index = varBit.index;
+			if (index < 0 || index >= clientInstance.settings.length) {
+				return null;
+			}
 			int leastSignificantBit = varBit.leastSignificantBit;
 			int mostSignificantBit = varBit.mostSignificantBit;
+			if (mostSignificantBit < leastSignificantBit || (mostSignificantBit - leastSignificantBit) >= Client.varBits.length) {
+				return null;
+			}
 			int mask = Client.varBits[mostSignificantBit - leastSignificantBit];
 			i = clientInstance.settings[index] >> leastSignificantBit & mask;
-		} else if (varp != -1)
+		} else if (varp != -1) {
+			if (varp < 0 || varp >= clientInstance.settings.length) {
+				return null;
+			}
 			i = clientInstance.settings[varp];
+		}
 		if (i < 0 || i >= childrenIDs.length || childrenIDs[i] == -1)
 			return null;
 		else

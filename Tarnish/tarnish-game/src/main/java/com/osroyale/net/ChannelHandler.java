@@ -44,6 +44,7 @@ public final class ChannelHandler extends SimpleChannelInboundHandler<Object> {
         if (evt instanceof IdleStateEvent) {
             IdleStateEvent event = (IdleStateEvent) evt;
             if (event.state() == IdleState.READER_IDLE) {
+                logger.warn("Closing idle channel due to READER_IDLE: {}", ctx.channel().remoteAddress());
                 ctx.channel().close();
             }
         }

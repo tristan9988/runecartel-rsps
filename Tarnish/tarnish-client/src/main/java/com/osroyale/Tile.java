@@ -418,7 +418,11 @@ public final class Tile extends Linkable implements RSTile {
 
 	@Override
 	public void setDecorativeObject(DecorativeObject object) {
-
+		wallDecoration = (WallDecoration) object;
+		if (Client.instance.getCallbacks() != null)
+		{
+			decorativeObjectChanged();
+		}
 	}
 
 	@Override
@@ -428,7 +432,11 @@ public final class Tile extends Linkable implements RSTile {
 
 	@Override
 	public void setGroundObject(GroundObject object) {
-
+		groundDecoration = (GroundDecoration) object;
+		if (Client.instance.getCallbacks() != null)
+		{
+			groundObjectChanged();
+		}
 	}
 
 	@Override
@@ -438,7 +446,11 @@ public final class Tile extends Linkable implements RSTile {
 
 	@Override
 	public void setWallObject(net.runelite.api.WallObject object) {
-
+		wallObject = (Wall) object;
+		if (Client.instance.getCallbacks() != null)
+		{
+			wallObjectChanged();
+		}
 	}
 
 	@Override
@@ -448,7 +460,7 @@ public final class Tile extends Linkable implements RSTile {
 
 	@Override
 	public void setSceneTilePaint(SceneTilePaint paint) {
-
+		mySimpleTile = (SimpleTile) paint;
 	}
 
 	@Override

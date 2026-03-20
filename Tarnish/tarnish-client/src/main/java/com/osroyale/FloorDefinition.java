@@ -1,5 +1,7 @@
 package com.osroyale;
 
+import java.util.Arrays;
+
 public class FloorDefinition {
 
 	public static FloorDefinition[] overlays;
@@ -33,13 +35,14 @@ public class FloorDefinition {
 	private static void initUnderlays(final StreamLoader archive) {
 		final Buffer buffer = new Buffer(archive.getFile("underlays.dat"));
 
-		final int highestFileId = buffer.readUnsignedShort();
-		System.out.println("underlayAmount=" + highestFileId);
-		underlays = new FloorDefinition[highestFileId + 1];
+		final int entryCount = buffer.readUnsignedShort();
+		System.out.println("underlayAmount=" + entryCount);
+		underlays = new FloorDefinition[Math.max(entryCount + 1, 1)];
 
-		for (int i = 0; i <= highestFileId; i++) {
+		for (int i = 0; i < entryCount; i++) {
 			final int id = buffer.readUnsignedShort();
 			if (id == -1 || id == 65535) continue;
+			underlays = ensureCapacity(underlays, id);
 
 			FloorDefinition floorDefinition = underlays[id];
 			if (floorDefinition == null) {
@@ -52,21 +55,20 @@ public class FloorDefinition {
 
 			floorDefinition.readValuesUnderlay(new Buffer(data));
 			floorDefinition.generateHsl(true);
-
-			if (id >= highestFileId) break;
 		}
 	}
 
 	private static void initOverlays(final StreamLoader archive) {
 		final Buffer buffer = new Buffer(archive.getFile("overlays.dat"));
 
-		final int highestFileId = buffer.readUnsignedShort();
-		System.out.println("overlayAmount="+highestFileId);
-		overlays = new FloorDefinition[highestFileId + 1];
+		final int entryCount = buffer.readUnsignedShort();
+		System.out.println("overlayAmount=" + entryCount);
+		overlays = new FloorDefinition[Math.max(entryCount + 1, 1)];
 
-		for (int i = 0; i <= highestFileId; i++) {
+		for (int i = 0; i < entryCount; i++) {
 			final int id = buffer.readUnsignedShort();
 			if (id == -1 || id == 65535) continue;
+			overlays = ensureCapacity(overlays, id);
 
 			FloorDefinition floorDefinition = overlays[id];
 			if (floorDefinition == null) {
@@ -79,9 +81,45 @@ public class FloorDefinition {
 
 			floorDefinition.readValuesOverlay(new Buffer(data));
 			floorDefinition.postDecode();
-
-			if (id >= highestFileId) break;
 		}
+	}
+
+	private static FloorDefinition[] ensureCapacity(FloorDefinition[] definitions, int id) {
+		if (id < definitions.length) {
+			return definitions;
+		}
+
+		int newSize = definitions.length;
+		while (newSize <= id) {
+			newSize <<= 1;
+		}
+
+		return Arrays.copyOf(definitions, newSize);
+	}
+
+	public static FloorDefinition getUnderlay(int id) {
+		return getDefinition(underlays, id);
+	}
+
+	public static FloorDefinition getOverlay(int id) {
+		return getDefinition(overlays, id);
+	}
+
+	private static FloorDefinition getDefinition(FloorDefinition[] definitions, int id) {
+		if (definitions == null || id <= 0) {
+			return null;
+		}
+
+		int legacyId = id - 1;
+		if (legacyId >= 0 && legacyId < definitions.length && definitions[legacyId] != null) {
+			return definitions[legacyId];
+		}
+
+		if (id < definitions.length) {
+			return definitions[id];
+		}
+
+		return null;
 	}
 
 

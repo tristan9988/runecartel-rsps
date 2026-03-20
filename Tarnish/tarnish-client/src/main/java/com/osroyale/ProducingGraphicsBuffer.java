@@ -16,8 +16,10 @@ public class ProducingGraphicsBuffer extends AbstractRasterProvider implements R
         super.width = width;
         super.height = height;
         super.pixels = new int[height * width + 1];
-        DataBufferInt var4 = new DataBufferInt(super.pixels, super.pixels.length);
-        DirectColorModel var5 = new DirectColorModel(32, 16711680, 65280, 255);
+        // Use 24-bit depth (matches TYPE_INT_RGB) for Java2D hardware-accelerated blitting.
+        // 32-bit creates TYPE_CUSTOM which forces slow software blit paths.
+        DataBufferInt var4 = new DataBufferInt(super.pixels, width * height);
+        DirectColorModel var5 = new DirectColorModel(24, 0x00ff0000, 0x0000ff00, 0x000000ff);
         WritableRaster var6 = Raster.createWritableRaster(var5.createCompatibleSampleModel(super.width, super.height), var4, (Point) null);
         this.image = new BufferedImage(var5, var6, false, new Hashtable());
         this.setComponent(component);
@@ -49,14 +51,30 @@ public class ProducingGraphicsBuffer extends AbstractRasterProvider implements R
 	}
 
     public void drawFull(int var1, int var2) {
-        this.drawFull0(this.component.getGraphics(), var1, var2);
+        Graphics g = this.component.getGraphics();
+        if (g != null) {
+            this.drawFull0(g, var1, var2);
+        }
     }
 
     public final void draw(int var1, int var2, int var3, int var4) {
-        this.draw0(this.component.getGraphics(), var1, var2, var3, var4); // L: 45
+        Graphics g = this.component.getGraphics();
+        if (g != null) {
+            this.draw0(g, var1, var2, var3, var4);
+        }
     }
 
     private final void drawFull0(Graphics var1, int var2, int var3) {
+        if (Client.DISABLE_RUNELITE_RENDER_HOOKS) {
+            // Fast path: direct blit to canvas, bypassing the entire Hooks.draw() chain.
+            // Skips overlay rendering, processDrawComplete, image copy, and extra Graphics2D allocations.
+            try {
+                var1.drawImage(this.image, var2, var3, null);
+            } catch (Exception e) {
+                // Canvas may have been disposed during resize
+            }
+            return;
+        }
         Client.instance.getCallbacks().draw(this, var1, var2, var3);
     }
 
@@ -64,12 +82,11 @@ public class ProducingGraphicsBuffer extends AbstractRasterProvider implements R
         try {
             Shape var6 = var1.getClip();
             var1.clipRect(var2, var3, var4, var5);
-            var1.drawImage(this.image, 0, 0, this.component);
+            var1.drawImage(this.image, 0, 0, null);
             var1.setClip(var6);
         } catch (Exception var7) {
             this.component.repaint();
         }
-
     }
 
     @Override

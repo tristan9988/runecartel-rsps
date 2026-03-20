@@ -179,7 +179,7 @@ public interface RSClient extends RSGameEngine, Client
 	@Import("Scene_hoverX")
 	void setHoverTileX(int hoverX);
 
-	@Import("Scene_hoverdY")
+	@Import("Scene_hoverY")
 	int getHoverTileY();
 
 	@Import("Scene_hoverY")
@@ -1583,23 +1583,23 @@ public interface RSClient extends RSGameEngine, Client
 	@Import("idleTicks")
 	int getIdleTimeout();
 
-	@Import("minimapZoom")
+	@Override
 	void setMinimapZoom(boolean minimapZoom);
 
-	@Import("idleTicks")
+	@Override
 	double getMinimapZoom();
 
 
-	@Import("minimapZoom")
+	@Override
 	boolean isMinimapZoom();
 
-	@Import("minimapZoom")
+	@Override
 	void setMinimapZoom(double zoom);
 
 	@Import("chatLocked")
 	boolean chatLocked();
 
-	@Import("chatInput")
+	@Import("chatLocked")
 	void setChatLocked(boolean state);
 
 	@Import("openDialogID")

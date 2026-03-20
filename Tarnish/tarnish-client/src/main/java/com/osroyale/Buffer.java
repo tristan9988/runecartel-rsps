@@ -10,6 +10,9 @@ public final class Buffer extends Cacheable {
 	}
 
 	public int readSmart() {
+		if (position < 0 || position >= array.length) {
+			return 0;
+		}
 		int value = array[position] & 0xff;
 		if (value < 128)
 			return readUnsignedByte() - 64;

@@ -14,12 +14,33 @@ public class Rasterizer2D extends Cacheable {
 	public static int lastX;
 	public static int viewportCenterX;
 	public static int viewportCenterY;
+	
+	// Cached GPU state for performance - avoid method calls in tight rendering loops
+	public static boolean gpuRenderMode = false;
+	public static int[] gpuTargetPixels = null;
+	
+	/**
+	 * Update the cached GPU rendering state. Call this when GPU mode or buffer changes.
+	 */
+	public static void updateGpuState(boolean isGpu, int[] targetPixels) {
+		gpuRenderMode = isGpu;
+		gpuTargetPixels = targetPixels;
+	}
 
 	public static void initDrawingArea(int[] pixels, int w, int h) {
 		Rasterizer2D.pixels = pixels;
 		width = w;
 		height = h;
 		setDrawingArea(0, 0, w, h);
+		
+		// Update cached GPU state
+		if (Client.instance != null) {
+			boolean isGpu = Client.instance.isGpu();
+			int[] gpuPixels = isGpu && Client.instance.getBufferProvider() != null 
+				? Client.instance.getBufferProvider().getPixels() 
+				: null;
+			updateGpuState(isGpu, gpuPixels);
+		}
 	}
 
 	public static void defaultDrawingAreaSize() {
@@ -108,7 +129,8 @@ public class Rasterizer2D extends Cacheable {
 	}
 
 	public static void drawAlpha(int[] pixels, int index, int value, int alpha) {
-		if (!Client.instance.isGpu() || pixels != Client.instance.getBufferProvider().getPixels()) {
+		// Fast path: non-GPU mode or different target - just write the pixel directly
+		if (!gpuRenderMode || pixels != gpuTargetPixels) {
 			pixels[index] = value;
 			return;
 		}

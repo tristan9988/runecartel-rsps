@@ -88,7 +88,15 @@ public final class Player extends Entity implements RSPlayer {
         }
 
         if (super.graphicId != -1 && super.currentAnimationId != -1) {
-            Graphic spotAnim = Graphic.graphics[super.graphicId];
+              if (Graphic.graphics == null || super.graphicId < 0 || super.graphicId >= Graphic.graphics.length) {
+                super.graphicId = -1;
+                return animatedModel;
+              }
+              Graphic spotAnim = Graphic.graphics[super.graphicId];
+              if (spotAnim == null || spotAnim.animationSequence == null) {
+                super.graphicId = -1;
+                return animatedModel;
+              }
 
             Model spotAnimationModel = spotAnim.getModel();
 
@@ -96,16 +104,24 @@ public final class Player extends Entity implements RSPlayer {
              * MAKE SURE WE'VE LOADED THE GRAPHIC BEFORE ATTEMPTING TO DO IT.
              * Fixes graphics flickering.
              */
-            if (FrameBase.frameBases[spotAnim.animationSequence.primaryFrameIds[0] >> 16].length == 0) {
+            if (spotAnim.animationSequence.primaryFrameIds == null || spotAnim.animationSequence.primaryFrameIds.length == 0) {
                 spotAnimationModel = null;
+            } else {
+                int frameBaseIdx = spotAnim.animationSequence.primaryFrameIds[0] >> 16;
+                if (FrameBase.frameBases == null || frameBaseIdx < 0 || frameBaseIdx >= FrameBase.frameBases.length
+                        || FrameBase.frameBases[frameBaseIdx].length == 0) {
+                    spotAnimationModel = null;
+                }
             }
 
-            if (spotAnimationModel != null) {
+            if (spotAnimationModel != null && super.currentAnimationId >= 0
+                    && super.currentAnimationId < spotAnim.animationSequence.primaryFrameIds.length) {
 
-                Model model_3 = new Model(true, Frame.hasAlphaTransform(super.currentAnimationId), false, spotAnimationModel);
+                int frame = spotAnim.animationSequence.primaryFrameIds[super.currentAnimationId];
+                Model model_3 = new Model(true, Frame.hasAlphaTransform(frame), false, spotAnimationModel);
                 model_3.offsetBy(0, -super.graphicHeight, 0);
                 model_3.generateBones();
-                model_3.interpolate(spotAnim.animationSequence.primaryFrameIds[super.currentAnimationId]);
+                model_3.interpolate(frame);
                 model_3.groupedTriangleLabels = null;
                 model_3.groupedVertexLabels = null;
                 if (spotAnim.resizeXY != 128 || spotAnim.resizeZ != 128)
@@ -297,26 +313,41 @@ public final class Player extends Entity implements RSPlayer {
             if (desc != null) {
                 Animation secondarySeq = null;
                 if (super.primarySeqID >= 0 && super.primarySeqDelay == 0) {
-                    final Animation primarySeq = Animation.animations[super.primarySeqID];
+                            final Animation primarySeq = Animation.lookup(super.primarySeqID);
+                            if (primarySeq == null) {
+                              super.primarySeqID = -1;
+                            } else {
                     final boolean skeletal = primarySeq.isSkeletalAnimation();
 
                     if (!skeletal) {
-                        if (tween && super.nextAnimationFrame < primarySeq.primaryFrameIds.length) {
-                            nextFrame = primarySeq.primaryFrameIds[super.nextAnimationFrame];
-                            cycle1 = primarySeq.frameDelays[super.primarySeqFrame];
-                            cycle2 = super.primarySeqCycle;
+                        if (primarySeq.primaryFrameIds != null && super.primarySeqFrame < primarySeq.primaryFrameIds.length) {
+                            if (tween && super.nextAnimationFrame < primarySeq.primaryFrameIds.length) {
+                                nextFrame = primarySeq.primaryFrameIds[super.nextAnimationFrame];
+                                if (primarySeq.frameDelays != null && super.primarySeqFrame < primarySeq.frameDelays.length) {
+                                    cycle1 = primarySeq.frameDelays[super.primarySeqFrame];
+                                }
+                                cycle2 = super.primarySeqCycle;
+                            }
                         }
                     }
 
-                    primaryId = primarySeq.isSkeletalAnimation()
-                            ? primarySeq.getSkeletalFrameId()
-                            : primarySeq.primaryFrameIds[super.primarySeqFrame];
+                    if (primarySeq.isSkeletalAnimation()) {
+                        primaryId = primarySeq.getSkeletalFrameId();
+                    } else if (primarySeq.primaryFrameIds != null && super.primarySeqFrame < primarySeq.primaryFrameIds.length) {
+                        primaryId = primarySeq.primaryFrameIds[super.primarySeqFrame];
+                    }
 
                     if (super.secondarySeqID >= 0 && super.secondarySeqID != super.seqStandID) {
-                        secondarySeq = Animation.animations[super.secondarySeqID];
-                        secondaryId = secondarySeq.isSkeletalAnimation()
-                                ? secondarySeq.getSkeletalFrameId()
-                                : secondarySeq.primaryFrameIds[super.secondarySeqFrame];
+                                  secondarySeq = Animation.lookup(super.secondarySeqID);
+                                  if (secondarySeq != null) {
+                                    if (secondarySeq.isSkeletalAnimation()) {
+                                        secondaryId = secondarySeq.getSkeletalFrameId();
+                                    } else if (secondarySeq.primaryFrameIds != null && super.secondarySeqFrame < secondarySeq.primaryFrameIds.length) {
+                                        secondaryId = secondarySeq.primaryFrameIds[super.secondarySeqFrame];
+                                    }
+                                  } else {
+                                    super.secondarySeqID = super.seqStandID;
+                                  }
                     }
 
                     // double anim
@@ -327,32 +358,55 @@ public final class Player extends Entity implements RSPlayer {
 
                     return desc.getAnimatedModel(secondaryId, primaryId, nextFrame, cycle1, cycle2,
                             primarySeq.interleaveOrder, false);
+                            } // end else (primarySeq != null)
                 }
                 if (super.secondarySeqID >= 0) {
-                    secondarySeq = Animation.animations[super.secondarySeqID];
+                                secondarySeq = Animation.lookup(super.secondarySeqID);
+                                if (secondarySeq == null) {
+                                  super.secondarySeqID = super.seqStandID;
+                                } else {
                     if (secondarySeq.isSkeletalAnimation()) {
                         return desc.getAnimatedModel(secondarySeq.getSkeletalFrameId(), -1, nextFrame,
                                 primarySeqFrame, secondarySeqFrame, null, true);
                     }
-                    primaryId = secondarySeq.primaryFrameIds[super.secondarySeqFrame];
-                    if (tween && super.nextIdleFrame < secondarySeq.primaryFrameIds.length) {
-                        nextFrame = secondarySeq.primaryFrameIds[super.nextIdleFrame];
-                        cycle1 = secondarySeq.frameDelays[super.secondarySeqFrame];
-                        cycle2 = super.secondarySeqCycle; // now to figure out what gay naming seven used
+                    if (secondarySeq.primaryFrameIds != null && super.secondarySeqFrame < secondarySeq.primaryFrameIds.length) {
+                        primaryId = secondarySeq.primaryFrameIds[super.secondarySeqFrame];
                     }
+                    if (tween && secondarySeq.primaryFrameIds != null && super.nextIdleFrame < secondarySeq.primaryFrameIds.length) {
+                        nextFrame = secondarySeq.primaryFrameIds[super.nextIdleFrame];
+                        if (secondarySeq.frameDelays != null && super.secondarySeqFrame < secondarySeq.frameDelays.length) {
+                            cycle1 = secondarySeq.frameDelays[super.secondarySeqFrame];
+                        }
+                        cycle2 = super.secondarySeqCycle;
+                    }
+                                } // end else (secondarySeq != null)
                 }
                 return desc.getAnimatedModel(-1, primaryId, nextFrame, cycle1, cycle2, null, false);
             }
             if (super.primarySeqID >= 0 && super.primarySeqDelay == 0) {
-                Animation animation = Animation.animations[super.primarySeqID];
-                primaryId = animation.primaryFrameIds[super.primarySeqFrame];
-                if (tween && super.nextAnimationFrame < animation.primaryFrameIds.length) {
+                        Animation animation = Animation.lookup(super.primarySeqID);
+                        if (animation == null) {
+                          super.primarySeqID = -1;
+                        } else {
+                if (animation.primaryFrameIds != null && super.primarySeqFrame < animation.primaryFrameIds.length) {
+                    primaryId = animation.primaryFrameIds[super.primarySeqFrame];
+                }
+                if (tween && animation.primaryFrameIds != null && super.nextAnimationFrame < animation.primaryFrameIds.length) {
                     nextFrame = animation.primaryFrameIds[super.nextAnimationFrame];
-                    cycle1 = animation.frameDelays[super.primarySeqFrame];
+                    if (animation.frameDelays != null && super.primarySeqFrame < animation.frameDelays.length) {
+                        cycle1 = animation.frameDelays[super.primarySeqFrame];
+                    }
                     cycle2 = super.primarySeqCycle;
                 }
                 if (super.secondarySeqID >= 0 && super.secondarySeqID != super.seqStandID) {
-                    secondaryId = Animation.animations[super.secondarySeqID].primaryFrameIds[super.secondarySeqFrame];
+                              Animation secondaryAnimation = Animation.lookup(super.secondarySeqID);
+                              if (secondaryAnimation != null) {
+                                if (secondaryAnimation.primaryFrameIds != null && super.secondarySeqFrame < secondaryAnimation.primaryFrameIds.length) {
+                                    secondaryId = secondaryAnimation.primaryFrameIds[super.secondarySeqFrame];
+                                }
+                              } else {
+                                super.secondarySeqID = super.seqStandID;
+                              }
                 }
                 if (animation.shield >= 0) {
                     j1 = animation.shield;
@@ -362,14 +416,23 @@ public final class Player extends Entity implements RSPlayer {
                     k1 = animation.weapon;
                     bitset += k1 - appearanceModels[3] << 48;
                 }
+                        } // end else (animation != null)
             } else if (super.secondarySeqID >= 0) {
-                final Animation seq = Animation.animations[super.secondarySeqID];
-                primaryId = seq.primaryFrameIds[super.secondarySeqFrame];
-                if (tween && super.nextIdleFrame < seq.primaryFrameIds.length) {
+                        final Animation seq = Animation.lookup(super.secondarySeqID);
+                        if (seq == null) {
+                          super.secondarySeqID = super.seqStandID;
+                        } else {
+                if (seq.primaryFrameIds != null && super.secondarySeqFrame < seq.primaryFrameIds.length) {
+                    primaryId = seq.primaryFrameIds[super.secondarySeqFrame];
+                }
+                if (tween && seq.primaryFrameIds != null && super.nextIdleFrame < seq.primaryFrameIds.length) {
                     nextFrame = seq.primaryFrameIds[super.nextIdleFrame];
-                    cycle1 = seq.frameDelays[super.secondarySeqFrame];
+                    if (seq.frameDelays != null && super.secondarySeqFrame < seq.frameDelays.length) {
+                        cycle1 = seq.frameDelays[super.secondarySeqFrame];
+                    }
                     cycle2 = super.secondarySeqCycle;
                 }
+                        } // end else (seq != null)
             }
             Model model_1 = (Model) mruNodes.get(bitset);
             if (model_1 == null) {
@@ -380,7 +443,7 @@ public final class Player extends Entity implements RSPlayer {
                         k2 = k1;
                     if (j1 >= 0 && i2 == 5)
                         k2 = j1;
-                    if (k2 >= 256 && k2 < 512 && !IdentityKit.kits[k2 - 256].bodyLoaded())
+                    if (k2 >= 256 && k2 < 512 && (k2 - 256 >= IdentityKit.kits.length || IdentityKit.kits[k2 - 256] == null || !IdentityKit.kits[k2 - 256].bodyLoaded()))
                         flag = true;
                     if (k2 >= 512 && !ItemDefinition.lookup(k2 - 512).method195(gender))
                         flag = true;
@@ -404,6 +467,7 @@ public final class Player extends Entity implements RSPlayer {
                     if (j1 >= 0 && l2 == 5)
                         i3 = j1;
                     if (i3 >= 256 && i3 < 512) {
+                        if (i3 - 256 >= IdentityKit.kits.length || IdentityKit.kits[i3 - 256] == null) continue;
                         Model model_3 = IdentityKit.kits[i3 - 256].method538();
                         if (model_3 != null)
                             aclass30_sub2_sub4_sub6s[j2++] = model_3;
@@ -438,8 +502,9 @@ public final class Player extends Entity implements RSPlayer {
             model_2.buildSharedSequenceModel(model_1,
                     Frame.hasAlphaTransform(primaryId) && Frame.hasAlphaTransform(secondaryId));
             if (primaryId != -1 && secondaryId != -1) {
+                    Animation primaryAnimation = Animation.lookup(super.primarySeqID);
                 model_2.applyAnimationFrames(
-                        super.primarySeqID >= 0 ? Animation.animations[super.primarySeqID].interleaveOrder : null,
+                        primaryAnimation != null ? primaryAnimation.interleaveOrder : null,
                         secondaryId, primaryId);
             } else if (primaryId != -1) {
                 model_2.applyAnimationFrame(true, primaryId, nextFrame, cycle1, cycle2);
@@ -469,7 +534,7 @@ public final class Player extends Entity implements RSPlayer {
         boolean flag = false;
         for (int i = 0; i < 12; i++) {
             int j = appearanceModels[i];
-            if (j >= 256 && j < 512 && !IdentityKit.kits[j - 256].headLoaded())
+            if (j >= 256 && j < 512 && (j - 256 >= IdentityKit.kits.length || IdentityKit.kits[j - 256] == null || !IdentityKit.kits[j - 256].headLoaded()))
                 flag = true;
             if (j >= 512 && !ItemDefinition.lookup(j - 512).method192(gender))
                 flag = true;
@@ -482,6 +547,7 @@ public final class Player extends Entity implements RSPlayer {
         for (int l = 0; l < 12; l++) {
             int i1 = appearanceModels[l];
             if (i1 >= 256 && i1 < 512) {
+                if (i1 - 256 >= IdentityKit.kits.length || IdentityKit.kits[i1 - 256] == null) continue;
                 Model model_1 = IdentityKit.kits[i1 - 256].headModel();
                 if (model_1 != null)
                     aclass30_sub2_sub4_sub6s[k++] = model_1;

@@ -136,10 +136,8 @@ public abstract class GameEngine extends Applet implements Runnable, WindowListe
     public final void post(Object var1) {
         if (!Client.instance.isGpu()) {
             if (eventQueue != null) {
-                for (int var2 = 0; var2 < 50 && eventQueue.peekEvent() != null; ++var2) {
-                    TaskUtils.sleep(1L);
-                }
-
+                // Post the event immediately without sleeping.
+                // The old sleep loop (up to 5×15ms on Windows) was the #1 cause of low FPS.
                 if (var1 != null) {
                     eventQueue.postEvent(new ActionEvent(var1, 1001, "dummy"));
                 }
@@ -621,6 +619,15 @@ public abstract class GameEngine extends Applet implements Runnable, WindowListe
     }
 
     private volatile boolean hasStartedUp;
+
+    // Frame timing for performance analysis
+    private long frameTotalNs;
+    private long frameWaitNs;
+    private long frameTickNs;
+    private long frameDrawNs;
+    private long framePostNs;
+    private int frameTimingCount;
+
     public void run() {
         try {
             thread = Thread.currentThread();
@@ -641,14 +648,42 @@ public abstract class GameEngine extends Applet implements Runnable, WindowListe
                     //}).start();
                 }
 
+                long t0 = System.nanoTime();
                 gameCyclesToDo = clock.wait(cycleDurationMillis, fiveOrOne);
+                long t1 = System.nanoTime();
 
                 for (int cycles = 0; cycles < gameCyclesToDo; ++cycles) {
                     clientTick();
                 }
+                long t2 = System.nanoTime();
 
                 graphicsTick();
+                long t3 = System.nanoTime();
+
                 post(canvas);
+                long t4 = System.nanoTime();
+
+                // Accumulate timing stats
+                frameWaitNs += (t1 - t0);
+                frameTickNs += (t2 - t1);
+                frameDrawNs += (t3 - t2);
+                framePostNs += (t4 - t3);
+                frameTotalNs += (t4 - t0);
+                frameTimingCount++;
+
+                if (frameTimingCount >= 100) {
+                    long avgTotal = frameTotalNs / frameTimingCount / 1_000_000;
+                    long avgWait  = frameWaitNs  / frameTimingCount / 1_000_000;
+                    long avgTick  = frameTickNs  / frameTimingCount / 1_000_000;
+                    long avgDraw  = frameDrawNs  / frameTimingCount / 1_000_000;
+                    long avgPost  = framePostNs  / frameTimingCount / 1_000_000;
+                    System.out.println("[PERF] avg frame=" + avgTotal + "ms (wait=" + avgWait
+                            + " tick=" + avgTick + " draw=" + avgDraw + " post=" + avgPost
+                            + ") fps=" + fps + " cycles=" + gameCyclesToDo
+                            + " canvas=" + canvasWidth + "x" + canvasHeight);
+                    frameTotalNs = frameWaitNs = frameTickNs = frameDrawNs = framePostNs = 0;
+                    frameTimingCount = 0;
+                }
             }
         } catch (Exception exception) {
             exception.printStackTrace();

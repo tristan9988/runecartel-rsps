@@ -112,24 +112,28 @@ final class MapRegion {
 					if (k9 >= 0 && k9 < Tiles_renderFlags_countX) {
 						int l12 = underlayId[z][k9][i8] & 0xFFFF;
 						if (l12 > 0) {
-							FloorDefinition flo = FloorDefinition.underlays[l12 - 1];
-							anIntArray124[i8] += flo.blendHue;
-							anIntArray125[i8] += flo.saturation;
-							anIntArray126[i8] += flo.luminance;
-							anIntArray127[i8] += flo.blendHueMultiplier;
-							anIntArray128[i8]++;
+							FloorDefinition flo = FloorDefinition.getUnderlay(l12);
+							if (flo != null) {
+								anIntArray124[i8] += flo.blendHue;
+								anIntArray125[i8] += flo.saturation;
+								anIntArray126[i8] += flo.luminance;
+								anIntArray127[i8] += flo.blendHueMultiplier;
+								anIntArray128[i8]++;
+							}
 						}
 					}
 					int i13 = l6 - 5;
 					if (i13 >= 0 && i13 < Tiles_renderFlags_countX) {
 						int i14 = underlayId[z][i13][i8] & 0xFFFF;
 						if (i14 > 0) {
-							FloorDefinition flo_1 = FloorDefinition.underlays[i14 - 1];
-							anIntArray124[i8] -= flo_1.blendHue;
-							anIntArray125[i8] -= flo_1.saturation;
-							anIntArray126[i8] -= flo_1.luminance;
-							anIntArray127[i8] -= flo_1.blendHueMultiplier;
-							anIntArray128[i8]--;
+							FloorDefinition flo_1 = FloorDefinition.getUnderlay(i14);
+							if (flo_1 != null) {
+								anIntArray124[i8] -= flo_1.blendHue;
+								anIntArray125[i8] -= flo_1.saturation;
+								anIntArray126[i8] -= flo_1.luminance;
+								anIntArray127[i8] -= flo_1.blendHueMultiplier;
+								anIntArray128[i8]--;
+							}
 						}
 					}
 				}
@@ -162,6 +166,14 @@ final class MapRegion {
 								Tiles_minPlane = z;
 							int l18 = underlayId[z][l6][k17] & 0xFFFF;
 							int i19 = Tiles_overlays[z][l6][k17] & 0xFFFF;
+							FloorDefinition underlay = FloorDefinition.getUnderlay(l18);
+							if (l18 > 0 && underlay == null) {
+								l18 = 0;
+							}
+							FloorDefinition overlayFloor = FloorDefinition.getOverlay(i19);
+							if (i19 > 0 && overlayFloor == null) {
+								i19 = 0;
+							}
 							if (l18 > 0 || i19 > 0) {
 								int j19 = Tiles_heights[z][l6][k17];
 								int k19 = Tiles_heights[z][l6 + 1][k17];
@@ -173,7 +185,7 @@ final class MapRegion {
 								int i21 = anIntArrayArray139[l6][k17 + 1];
 								int j21 = -1;
 								int k21 = -1;
-								if (l18 > 0) {
+								if (l18 > 0 && k15 > 0 && k16 > 0) {
 									int l21 = (l9 * 256) / k15;
 									int j22 = j13 / k16;
 									int l22 = j14 / k16;
@@ -182,7 +194,8 @@ final class MapRegion {
 								}
 								if (z > 0) {
 									boolean flag = l18 != 0 || Tiles_shapes[z][l6][k17] == 0;
-									if (i19 > 0 && !FloorDefinition.overlays[i19 - 1].hideUnderlay)
+									FloorDefinition overlay = overlayFloor;
+									if (overlay != null && !overlay.hideUnderlay)
 										flag = false;
 									if (flag && j19 == k19 && j19 == l19 && j19 == i20)
 										anIntArrayArrayArray135[z][l6][k17] |= 0x924;
@@ -195,7 +208,10 @@ final class MapRegion {
 								} else {
 									int k22 = Tiles_shapes[z][l6][k17] + 1;
 									byte byte4 = Tiles_rotations[z][l6][k17];
-									FloorDefinition overlay_flo = FloorDefinition.overlays[i19 - 1];
+									FloorDefinition overlay_flo = overlayFloor;
+									if (overlay_flo == null) {
+region.addTile(z, l6, k17, 0, 0, -1, j19, k19, l19, i20, method187(j21, j20), method187(j21, k20), method187(j21, l20), method187(j21, i21), 0, 0, 0, 0, i22, 0);
+} else {
 									int texture = overlay_flo.texture;
 									int encodedTile;
 									int minimapColor;
@@ -237,6 +253,7 @@ final class MapRegion {
 
 									region.addTile(z, l6, k17, k22, byte4, texture, j19, k19, l19, i20, method187(j21, j20), method187(j21, k20), method187(j21, l20), method187(j21, i21), checkedLight(encodedTile, j20), checkedLight(encodedTile, k20), checkedLight(encodedTile, l20), checkedLight(encodedTile, i21), i22, encodedMinimap);
 
+													}
 								}
 							}
 						}
@@ -861,15 +878,16 @@ final class MapRegion {
 		}
 
 		Buffer stream = new Buffer(data);
+		TerrainReadMode terrainReadMode = resolveTerrainReadMode(data);
 
 		for (int plane = 0; plane < 4; plane++) {
 			for (int yy = 0; yy < 64; yy++) {
 				for (int xx = 0; xx < 64; xx++) {
 
 					if (plane == i && yy >= i1 && yy < i1 + 8 && xx >= j1 && xx < j1 + 8) {
-						loadTerrain(y + ChunkUtil.method156(xx & 7, height, yy & 7), 0, stream, x + ChunkUtil.method155(height, xx & 7, yy & 7), collisionMapIndex, height, 0);
+						loadTerrain(y + ChunkUtil.method156(xx & 7, height, yy & 7), 0, stream, x + ChunkUtil.method155(height, xx & 7, yy & 7), collisionMapIndex, height, 0, terrainReadMode);
 					} else {
-						loadTerrain(-1, 0, stream, -1, 0, 0, 0);
+						loadTerrain(-1, 0, stream, -1, 0, 0, 0, terrainReadMode);
 					}
 
 				}
@@ -890,10 +908,11 @@ final class MapRegion {
 		}
 
 		Buffer stream = new Buffer(data);
+		TerrainReadMode terrainReadMode = resolveTerrainReadMode(data);
 		for (int plane = 0; plane < 4; plane++) {
 			for (int x = 0; x < 64; x++) {
 				for (int y = 0; y < 64; y++)
-					loadTerrain(y + regionY, regionChunkY, stream, x + regionX, plane, 0, regionChunkX);
+					loadTerrain(y + regionY, regionChunkY, stream, x + regionX, plane, 0, regionChunkX, terrainReadMode);
 
 			}
 
@@ -904,59 +923,158 @@ final class MapRegion {
 		return z >= 0 && z < 4 && x >= 0 && x < 104 && y >= 0 && y < 104;
 	}
 
-	private void loadTerrain(int y, int regionChunkY, Buffer stream, int x, int z, int i1, int regionChunkX) {
-		try {
-			if (isValidMap(z, x, y)) {
-				settings[z][x][y] = 0;
-				while (true) {
-					int attribute = stream.readUnsignedShort();
-					if (attribute == 0) {
-						if (z == 0) {
-							Tiles_heights[0][x][y] = -calculate(0xe3b7b + x + regionChunkX, 0x87cce + y + regionChunkY) * 8;
-						} else {
-							Tiles_heights[z][x][y] = Tiles_heights[z - 1][x][y] - 240;
-						}
-						break;
-					} else if (attribute == 1) {
-						int height = stream.readUnsignedByte();
+	private TerrainReadMode resolveTerrainReadMode(byte[] data) {
+		TerrainProbeResult shortResult = probeTerrainReadMode(data, TerrainReadMode.SHORT);
+		TerrainProbeResult byteResult = probeTerrainReadMode(data, TerrainReadMode.BYTE);
 
-						if (height == 1) {
-							height = 0;
-						}
+		if (shortResult.isExactFit() && !byteResult.isExactFit()) {
+			return TerrainReadMode.SHORT;
+		}
+		if (byteResult.isExactFit() && !shortResult.isExactFit()) {
+			return TerrainReadMode.BYTE;
+		}
+		if (shortResult.isExactFit()) {
+			return TerrainReadMode.SHORT;
+		}
+		if (byteResult.isExactFit()) {
+			return TerrainReadMode.BYTE;
+		}
+		if (shortResult.tilesParsed != byteResult.tilesParsed) {
+			return shortResult.tilesParsed > byteResult.tilesParsed ? TerrainReadMode.SHORT : TerrainReadMode.BYTE;
+		}
+		return shortResult.position >= byteResult.position ? TerrainReadMode.SHORT : TerrainReadMode.BYTE;
+	}
 
-						if (z == 0) {
-							Tiles_heights[0][x][y] = -height * 8;
-						} else {
-							Tiles_heights[z][x][y] = Tiles_heights[z - 1][x][y] - height * 8;
+	private TerrainProbeResult probeTerrainReadMode(byte[] data, TerrainReadMode terrainReadMode) {
+		Buffer stream = new Buffer(data);
+		TerrainProbeResult result = new TerrainProbeResult();
+		result.inputLength = data.length;
+
+		for (int plane = 0; plane < 4; plane++) {
+			for (int x = 0; x < 64; x++) {
+				for (int y = 0; y < 64; y++) {
+					while (true) {
+						int attribute = readTerrainValue(stream, terrainReadMode);
+						if (attribute == -1) {
+							result.position = stream.position;
+							return result;
 						}
-						break;
-					} else if (attribute <= 49) {
-						Tiles_overlays[z][x][y] = (short) stream.readShortOSRS();
-						Tiles_shapes[z][x][y] = (byte) ((attribute - 2) / 4);
-						Tiles_rotations[z][x][y] = (byte) (attribute - 2 + i1 & 3);
-					} else if (attribute <= 81) {
-						settings[z][x][y] = (byte) (attribute - 49);
-					} else {
-						underlayId[z][x][y] = (short) (attribute - 81);
-					}
-				}
-			} else {
-				while (true) {
-					int attribute = stream.readUnsignedShort();
-					if (attribute == 0)
-						break;
-					if (attribute == 1) {
-						stream.readUnsignedByte();
-						break;
-					}
-					if (attribute <= 49) {
-						stream.readShort();
+						if (attribute == 0) {
+							result.tilesParsed++;
+							break;
+						}
+						if (attribute == 1) {
+							if (!canReadUnsignedByte(stream)) {
+								result.position = stream.position;
+								return result;
+							}
+							stream.readUnsignedByte();
+							result.tilesParsed++;
+							break;
+						}
+						if (attribute <= 49 && readTerrainValue(stream, terrainReadMode) == -1) {
+							result.position = stream.position;
+							return result;
+						}
 					}
 				}
 			}
-		} catch (Exception e) {
-			e.printStackTrace();
 		}
+
+		result.position = stream.position;
+		return result;
+	}
+
+	private int readTerrainValue(Buffer stream, TerrainReadMode terrainReadMode) {
+		if (terrainReadMode == TerrainReadMode.SHORT) {
+			return stream.position + 1 < stream.array.length ? stream.readUnsignedShort() : -1;
+		}
+		return stream.position < stream.array.length ? stream.readUnsignedByte() : -1;
+	}
+
+	private boolean canReadUnsignedByte(Buffer stream) {
+		return stream.position < stream.array.length;
+	}
+
+	private void applyDefaultTileHeight(int x, int y, int z, int regionChunkX, int regionChunkY) {
+		if (z == 0) {
+			Tiles_heights[0][x][y] = -calculate(0xe3b7b + x + regionChunkX, 0x87cce + y + regionChunkY) * 8;
+		} else {
+			Tiles_heights[z][x][y] = Tiles_heights[z - 1][x][y] - 240;
+		}
+	}
+
+	private void loadTerrain(int y, int regionChunkY, Buffer stream, int x, int z, int i1, int regionChunkX, TerrainReadMode terrainReadMode) {
+		if (isValidMap(z, x, y)) {
+			settings[z][x][y] = 0;
+			while (true) {
+				int attribute = readTerrainValue(stream, terrainReadMode);
+				if (attribute == -1 || attribute == 0) {
+					applyDefaultTileHeight(x, y, z, regionChunkX, regionChunkY);
+					break;
+				} else if (attribute == 1) {
+					if (!canReadUnsignedByte(stream)) {
+						applyDefaultTileHeight(x, y, z, regionChunkX, regionChunkY);
+						break;
+					}
+					int height = stream.readUnsignedByte();
+
+					if (height == 1) {
+						height = 0;
+					}
+
+					if (z == 0) {
+						Tiles_heights[0][x][y] = -height * 8;
+					} else {
+						Tiles_heights[z][x][y] = Tiles_heights[z - 1][x][y] - height * 8;
+					}
+					break;
+				} else if (attribute <= 49) {
+					int overlay = readTerrainValue(stream, terrainReadMode);
+					if (overlay == -1) {
+						applyDefaultTileHeight(x, y, z, regionChunkX, regionChunkY);
+						break;
+					}
+					Tiles_overlays[z][x][y] = (short) overlay;
+					Tiles_shapes[z][x][y] = (byte) ((attribute - 2) / 4);
+					Tiles_rotations[z][x][y] = (byte) (attribute - 2 + i1 & 3);
+				} else if (attribute <= 81) {
+					settings[z][x][y] = (byte) (attribute - 49);
+				} else {
+					underlayId[z][x][y] = (short) (attribute - 81);
+				}
+			}
+		} else {
+			while (true) {
+				int attribute = readTerrainValue(stream, terrainReadMode);
+				if (attribute == -1 || attribute == 0)
+					break;
+				if (attribute == 1) {
+					if (canReadUnsignedByte(stream)) {
+						stream.readUnsignedByte();
+					}
+					break;
+				}
+				if (attribute <= 49 && readTerrainValue(stream, terrainReadMode) == -1) {
+					break;
+				}
+			}
+		}
+	}
+
+	private static final class TerrainProbeResult {
+		private int inputLength;
+		private int tilesParsed;
+		private int position;
+
+		private boolean isExactFit() {
+			return tilesParsed == 4 * 64 * 64 && position == inputLength;
+		}
+	}
+
+	private enum TerrainReadMode {
+		BYTE,
+		SHORT
 	}
 
 	private int method182(int y, int plane, int x) {
@@ -1006,7 +1124,7 @@ final class MapRegion {
 								collisionsHeight >= 0
 										? collisions[collisionsHeight]
 										: null;
-						addLocation(y, worldController, locationCollisions, type, height/*targetHeight*/, id, id, orientation + xPlane & 3);
+						addLocation(y, worldController, locationCollisions, type, height/*targetHeight*/, x, id, orientation + xPlane & 3);
 					}
 				}
 			}

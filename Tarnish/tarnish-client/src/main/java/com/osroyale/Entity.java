@@ -7,7 +7,8 @@ package com.osroyale;
 public class Entity extends Renderable {
 
 	public final void setPos(int x, int y, boolean discardWalkingQueue) {
-		if (primarySeqID != -1 && Animation.animations[primarySeqID].walkFlag == 1)
+		Animation primaryAnimation = Animation.lookup(primarySeqID);
+		if (primarySeqID != -1 && (primaryAnimation == null || primaryAnimation.walkFlag == 1))
 			primarySeqID = -1;
 
 		if (!discardWalkingQueue) {
@@ -112,7 +113,8 @@ public class Entity extends Renderable {
 			y--;
 		}
 
-		if (primarySeqID != -1 && Animation.animations[primarySeqID].walkFlag == 1)
+		Animation primaryAnimation = Animation.lookup(primarySeqID);
+		if (primarySeqID != -1 && (primaryAnimation == null || primaryAnimation.walkFlag == 1))
 			primarySeqID = -1;
 
 		if (waypointIndex < 9)

@@ -158,23 +158,41 @@ public class Model extends Renderable implements RSModel {
 		ModelHeader header = modelHeaders[file];
 		if (header == null) {
 			Client.instance.onDemandFetcher.loadData(0, file);
-			return null;
-		} else {
-			return new Model(file);
+			// Re-check after loading (works for synchronous local cache loading)
+			header = modelHeaders[file];
 		}
+		if (header != null) {
+			try {
+				return new Model(file);
+			} catch (Exception e) {
+				// Corrupt model data in cache - skip this model to prevent game loop crash
+				System.err.println("[MODEL] Corrupt model file=" + file + ": " + e.getMessage());
+				modelHeaders[file] = null; // Remove corrupt header so we don't keep retrying
+				return null;
+			}
+		}
+		return null;
 	}
 
+	private static int isCachedCalls = 0;
 	public static boolean isCached(int file) {
 		if (modelHeaders == null)
 			return false;
 
 		ModelHeader mdl = modelHeaders[file];
 		if (mdl == null) {
-			Client.instance.onDemandFetcher.loadData(0,file);
-			return false;
-		} else {
-			return true;
+			isCachedCalls++;
+			if (isCachedCalls <= 10) {
+				OnDemandFetcher.debugWrite("Model.isCached file=" + file + " calling loadData");
+			}
+			Client.instance.onDemandFetcher.loadData(0, file);
+			// Re-check after loading (works for synchronous local cache loading)
+			mdl = modelHeaders[file];
+			if (isCachedCalls <= 10) {
+				OnDemandFetcher.debugWrite("Model.isCached file=" + file + " after loadData, mdl=" + (mdl != null));
+			}
 		}
+		return mdl != null;
 	}
 
 	Model() {
@@ -1020,6 +1038,31 @@ public class Model extends Renderable implements RSModel {
 		}
 	}
 
+	private static int invalidTransformDebugCount;
+
+	private boolean isValidVertexGroup(int skin) {
+		return groupedVertexLabels != null && skin >= 0 && skin < groupedVertexLabels.length;
+	}
+
+	private boolean isValidVertexIndex(int index) {
+		return index >= 0 && index < verticesCount;
+	}
+
+	private boolean isValidTriangleGroup(int skin) {
+		return groupedTriangleLabels != null && skin >= 0 && skin < groupedTriangleLabels.length;
+	}
+
+	private boolean isValidTriangleIndex(int index) {
+		return faceTransparencies != null && index >= 0 && index < faceTransparencies.length;
+	}
+
+	private void logInvalidTransformIndex(String kind, int index, int length) {
+		if (invalidTransformDebugCount < 25) {
+			invalidTransformDebugCount++;
+			OnDemandFetcher.debugWrite("[MODEL] Skipping invalid " + kind + " index=" + index + " length=" + length);
+		}
+	}
+
 	private void transform(int animationType, int[] skinArray, int x, int y, int z) {
 
 		int length = skinArray.length;
@@ -1030,10 +1073,14 @@ public class Model extends Renderable implements RSModel {
 			transformTempZ = 0;
 			for (int k2 = 0; k2 < length; k2++) {
 				int skin = skinArray[k2];
-				if (skin < groupedVertexLabels.length) {
+				if (isValidVertexGroup(skin)) {
 					int[] group = groupedVertexLabels[skin];
 					for (int i5 = 0; i5 < group.length; i5++) {
 						int offset = group[i5];
+						if (!isValidVertexIndex(offset)) {
+							logInvalidTransformIndex("vertex", offset, verticesCount);
+							continue;
+						}
 						transformTempX += verticesX[offset];
 						transformTempY += verticesY[offset];
 						transformTempZ += verticesZ[offset];
@@ -1058,10 +1105,14 @@ public class Model extends Renderable implements RSModel {
 		if (animationType == 1) {
 			for (int k1 = 0; k1 < length; k1++) {
 				int skin = skinArray[k1];
-				if (skin < groupedVertexLabels.length) {
+				if (isValidVertexGroup(skin)) {
 					int[] group = groupedVertexLabels[skin];
 					for (int i4 = 0; i4 < group.length; i4++) {
 						int offset = group[i4];
+						if (!isValidVertexIndex(offset)) {
+							logInvalidTransformIndex("vertex", offset, verticesCount);
+							continue;
+						}
 						verticesX[offset] += x;
 						verticesY[offset] += y;
 						verticesZ[offset] += z;
@@ -1075,10 +1126,14 @@ public class Model extends Renderable implements RSModel {
 		if (animationType == 2) {
 			for (int l1 = 0; l1 < length; l1++) {
 				int skin = skinArray[l1];
-				if (skin < groupedVertexLabels.length) {
+				if (isValidVertexGroup(skin)) {
 					int[] group = groupedVertexLabels[skin];
 					for (int j4 = 0; j4 < group.length; j4++) {
 						int offset = group[j4];
+						if (!isValidVertexIndex(offset)) {
+							logInvalidTransformIndex("vertex", offset, verticesCount);
+							continue;
+						}
 						verticesX[offset] -= transformTempX;
 						verticesY[offset] -= transformTempY;
 						verticesZ[offset] -= transformTempZ;
@@ -1119,10 +1174,14 @@ public class Model extends Renderable implements RSModel {
 		if (animationType == 3) {
 			for (int uid = 0; uid < length; uid++) {
 				int skin = skinArray[uid];
-				if (skin < groupedVertexLabels.length) {
+				if (isValidVertexGroup(skin)) {
 					int[] group = groupedVertexLabels[skin];
 					for (int k4 = 0; k4 < group.length; k4++) {
 						int offset = group[k4];
+						if (!isValidVertexIndex(offset)) {
+							logInvalidTransformIndex("vertex", offset, verticesCount);
+							continue;
+						}
 						verticesX[offset] -= transformTempX;
 						verticesY[offset] -= transformTempY;
 						verticesZ[offset] -= transformTempZ;
@@ -1142,10 +1201,14 @@ public class Model extends Renderable implements RSModel {
 		if (animationType == 5 && groupedTriangleLabels != null && faceTransparencies != null) {
 			for (int j2 = 0; j2 < length; j2++) {
 				int skin = skinArray[j2];
-				if (skin < groupedTriangleLabels.length) {
+				if (isValidTriangleGroup(skin)) {
 					int[] group = groupedTriangleLabels[skin];
 					for (int l4 = 0; l4 < group.length; l4++) {
 						int var13 = group[l4];
+						if (!isValidTriangleIndex(var13)) {
+							logInvalidTransformIndex("triangle", var13, faceTransparencies.length);
+							continue;
+						}
 						int var14 = (this.faceTransparencies[var13] & 255) + x * 8;
 						if (var14 < 0) {
 							var14 = 0;
@@ -1259,9 +1322,13 @@ public class Model extends Renderable implements RSModel {
 				TO TO = skeletalFrame.tt[baseIndex][0];
 				int[] vertexLabels = base.getFrameMaps()[baseIndex];
 				for (int label : vertexLabels) {
-					if (label < groupedTriangleLabels.length) {
+					if (isValidTriangleGroup(label)) {
 						int[] triangleLabels = groupedTriangleLabels[label];
 						for (int triangleIndex : triangleLabels) {
+							if (!isValidTriangleIndex(triangleIndex)) {
+								logInvalidTransformIndex("triangle", triangleIndex, faceTransparencies.length);
+								continue;
+							}
 							int currentAlpha = faceTransparencies[triangleIndex];
 							int alpha = ((int) (((float) (currentAlpha)) + TO.gv(tick) * 255.0F));
 							alpha = MathUtils.clamp(alpha, 0, 255);
@@ -1280,9 +1347,10 @@ public class Model extends Renderable implements RSModel {
 		if (frameId == -1)
 			return;
 
-		NormalFrame frame = (NormalFrame) Frame.getFrame(frameId);
-		if (frame == null)
+		Frame frameObj = Frame.getFrame(frameId);
+		if (!(frameObj instanceof NormalFrame))
 			return;
+		NormalFrame frame = (NormalFrame) frameObj;
 
 		FrameBase base = frame.getFrameBase();
 		transformTempX = 0;
@@ -1307,14 +1375,16 @@ public class Model extends Renderable implements RSModel {
 			applyTransform(k);
 			return;
 		}
-		NormalFrame class36 = (NormalFrame) Frame.getFrame(k);
-		if (class36 == null)
+		Frame class36Obj = Frame.getFrame(k);
+		if (!(class36Obj instanceof NormalFrame))
 			return;
-		NormalFrame class36_1 = (NormalFrame) Frame.getFrame(j);
-		if (class36_1 == null) {
+		NormalFrame class36 = (NormalFrame) class36Obj;
+		Frame class36_1Obj = Frame.getFrame(j);
+		if (!(class36_1Obj instanceof NormalFrame)) {
 			applyTransform(k);
 			return;
 		}
+		NormalFrame class36_1 = (NormalFrame) class36_1Obj;
 		FrameBase class18 = class36.getFrameBase();
 		transformTempX = 0;
 		transformTempY = 0;
@@ -1362,10 +1432,14 @@ public class Model extends Renderable implements RSModel {
 			transformTempZ = 0;
 			for (int k2 = 0; k2 < i1; k2++) {
 				int l3 = ai[k2];
-				if (l3 < groupedVertexLabels.length) {
+				if (isValidVertexGroup(l3)) {
 					int[] ai5 = groupedVertexLabels[l3];
 					for (int i5 = 0; i5 < ai5.length; i5++) {
 						int j6 = ai5[i5];
+						if (!isValidVertexIndex(j6)) {
+							logInvalidTransformIndex("vertex", j6, verticesCount);
+							continue;
+						}
 						transformTempX += verticesX[j6];
 						transformTempY += verticesY[j6];
 						transformTempZ += verticesZ[j6];
@@ -1390,10 +1464,14 @@ public class Model extends Renderable implements RSModel {
 		if (i == 1) {
 			for (int k1 = 0; k1 < i1; k1++) {
 				int l2 = ai[k1];
-				if (l2 < groupedVertexLabels.length) {
+				if (isValidVertexGroup(l2)) {
 					int[] ai1 = groupedVertexLabels[l2];
 					for (int i4 = 0; i4 < ai1.length; i4++) {
 						int j5 = ai1[i4];
+						if (!isValidVertexIndex(j5)) {
+							logInvalidTransformIndex("vertex", j5, verticesCount);
+							continue;
+						}
 						verticesX[j5] += j;
 						verticesY[j5] += k;
 						verticesZ[j5] += l;
@@ -1407,10 +1485,14 @@ public class Model extends Renderable implements RSModel {
 		if (i == 2) {
 			for (int l1 = 0; l1 < i1; l1++) {
 				int i3 = ai[l1];
-				if (i3 < groupedVertexLabels.length) {
+				if (isValidVertexGroup(i3)) {
 					int[] ai2 = groupedVertexLabels[i3];
 					for (int j4 = 0; j4 < ai2.length; j4++) {
 						int k5 = ai2[j4];
+						if (!isValidVertexIndex(k5)) {
+							logInvalidTransformIndex("vertex", k5, verticesCount);
+							continue;
+						}
 						verticesX[k5] -= transformTempX;
 						verticesY[k5] -= transformTempY;
 						verticesZ[k5] -= transformTempZ;
@@ -1450,10 +1532,14 @@ public class Model extends Renderable implements RSModel {
 		if (i == 3) {
 			for (int i2 = 0; i2 < i1; i2++) {
 				int j3 = ai[i2];
-				if (j3 < groupedVertexLabels.length) {
+				if (isValidVertexGroup(j3)) {
 					int[] ai3 = groupedVertexLabels[j3];
 					for (int k4 = 0; k4 < ai3.length; k4++) {
 						int l5 = ai3[k4];
+						if (!isValidVertexIndex(l5)) {
+							logInvalidTransformIndex("vertex", l5, verticesCount);
+							continue;
+						}
 						verticesX[l5] -= transformTempX;
 						verticesY[l5] -= transformTempY;
 						verticesZ[l5] -= transformTempZ;
@@ -1471,10 +1557,14 @@ public class Model extends Renderable implements RSModel {
 		if (i == 5 && groupedTriangleLabels != null && faceTransparencies != null) {
 			for (int j2 = 0; j2 < i1; j2++) {
 				int k3 = ai[j2];
-				if (k3 < groupedTriangleLabels.length) {
+				if (isValidTriangleGroup(k3)) {
 					int[] ai4 = groupedTriangleLabels[k3];
 					for (int l4 = 0; l4 < ai4.length; l4++) {
 						int i6 = ai4[l4];
+						if (!isValidTriangleIndex(i6)) {
+							logInvalidTransformIndex("triangle", i6, faceTransparencies.length);
+							continue;
+						}
 						int var14 = (this.faceTransparencies[i6] & 255) + j * 8;
 						if (var14 < 0) {
 							var14 = 0;
@@ -1494,9 +1584,10 @@ public class Model extends Renderable implements RSModel {
 			return;
 		if (id == -1)
 			return;
-		NormalFrame animationFrame = (NormalFrame) Frame.getFrame(id);
-		if (animationFrame == null)
+		Frame animationFrameObj = Frame.getFrame(id);
+		if (!(animationFrameObj instanceof NormalFrame))
 			return;
+		NormalFrame animationFrame = (NormalFrame) animationFrameObj;
 		FrameBase skin = animationFrame.getFrameBase();
 		transformTempX = 0;
 		transformTempY = 0;
@@ -1511,9 +1602,10 @@ public class Model extends Renderable implements RSModel {
 	public void interpolateFrames(int frame, int nextFrame, int end, int cycle) {
 
 		if ((groupedVertexLabels != null && frame != -1)) {
-			NormalFrame currentAnimation = (NormalFrame) Frame.getFrame(frame);
-			if (currentAnimation == null)
+			Frame currentAnimationObj = Frame.getFrame(frame);
+			if (!(currentAnimationObj instanceof NormalFrame))
 				return;
+			NormalFrame currentAnimation = (NormalFrame) currentAnimationObj;
 			FrameBase currentList = currentAnimation.getFrameBase();
 			transformTempX = 0;
 			transformTempY = 0;
@@ -1521,8 +1613,11 @@ public class Model extends Renderable implements RSModel {
 			NormalFrame nextAnimation = null;
 			FrameBase nextList = null;
 			if (nextFrame != -1) {
-				nextAnimation = (NormalFrame) Frame.getFrame(nextFrame);
-				if (nextAnimation == null || nextAnimation.getFrameBase() == null)
+				Frame nextAnimationObj = Frame.getFrame(nextFrame);
+				if (!(nextAnimationObj instanceof NormalFrame))
+					return;
+				nextAnimation = (NormalFrame) nextAnimationObj;
+				if (nextAnimation.getFrameBase() == null)
 					return;
 				FrameBase nextSkin = nextAnimation.getFrameBase();
 				if (nextSkin != currentList)
@@ -1621,15 +1716,17 @@ public class Model extends Renderable implements RSModel {
 			interpolate(current);
 			return;
 		}
-		NormalFrame anim = (NormalFrame) Frame.getFrame(current);
-		if (anim == null)
+		Frame animObj = Frame.getFrame(current);
+		if (!(animObj instanceof NormalFrame))
 			return;
+		NormalFrame anim = (NormalFrame) animObj;
 
-		NormalFrame skin = (NormalFrame) Frame.getFrame(idle);
-		if (skin == null) {
+		Frame skinObj = Frame.getFrame(idle);
+		if (!(skinObj instanceof NormalFrame)) {
 			interpolate(current);
 			return;
 		}
+		NormalFrame skin = (NormalFrame) skinObj;
 		FrameBase list = anim.getFrameBase();
 		transformTempX = 0;
 		transformTempY = 0;

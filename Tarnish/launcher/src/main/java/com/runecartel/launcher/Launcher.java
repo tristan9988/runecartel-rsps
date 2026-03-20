@@ -7,8 +7,13 @@ import java.awt.image.BufferedImage;
 import java.io.*;
 import java.net.HttpURLConnection;
 import java.net.URL;
+import java.lang.management.ManagementFactory;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.*;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Properties;
+import java.util.concurrent.TimeUnit;
 import java.util.zip.*;
 
 /**
@@ -19,19 +24,21 @@ import java.util.zip.*;
 public class Launcher extends JFrame {
     
     // Embedded version - INCREMENT THESE when you update the embedded cache/client
-    private static final int CACHE_VERSION = 1;
-    private static final int CLIENT_VERSION = 2;
-    
+    private static final int CACHE_VERSION = 4;
+    private static final int CLIENT_VERSION = 10;
+
     // ========== CHANGE THIS TO YOUR GITHUB REPO ==========
     // Format: https://github.com/YOUR_USERNAME/YOUR_REPO/releases/download/latest/
-    private static final String REMOTE_BASE_URL = "https://github.com/RuneCartelHQ/updates/releases/download/latest/";
+    private static final String REMOTE_BASE_URL = "https://github.com/tristan9988/runecartel-updates/releases/download/latest/";
     // =====================================================
-    
+    private static final boolean USE_REMOTE_UPDATES = false;
+
     private static final String CLIENT_JAR = "RuneCartel.jar";
     private static final String GAME_DIRECTORY = System.getProperty("user.home") + File.separator + ".runecartel";
     private static final String CACHE_DIRECTORY = GAME_DIRECTORY + File.separator + "cache";
     private static final String VERSION_FILE = "version.properties";
-    
+    private static final String PREFERRED_JAVA_PATH = "C:\\Program Files\\Eclipse Adoptium\\jdk-11.0.22.7-hotspot\\bin\\java.exe";
+
     // Embedded resource paths (inside the JAR)
     private static final String EMBEDDED_CLIENT_ZIP = "/embedded/client.zip";
     private static final String EMBEDDED_CACHE_ZIP = "/embedded/cache.zip";
@@ -171,7 +178,7 @@ public class Launcher extends JFrame {
             updateStatus("Checking for updates...");
             setProgress(5);
             
-            Properties remoteProps = fetchRemoteVersions();
+            Properties remoteProps = USE_REMOTE_UPDATES ? fetchRemoteVersions() : null;
             if (remoteProps != null) {
                 remoteClientVersion = Integer.parseInt(remoteProps.getProperty("client.version", "-1"));
                 remoteCacheVersion = Integer.parseInt(remoteProps.getProperty("cache.version", "-1"));
@@ -615,34 +622,260 @@ public class Launcher extends JFrame {
     private void launchGame() {
         try {
             String clientPath = GAME_DIRECTORY + File.separator + CLIENT_JAR;
-            
-            ProcessBuilder pb = new ProcessBuilder(
-                "java",
-                "-Xmx1024m",
-                "-Xms512m",
-                "-jar",
-                clientPath
-            );
-            
-            pb.directory(new File(GAME_DIRECTORY));
-            pb.start();
-            
-            // Close launcher
-            Thread.sleep(1000);
-            System.exit(0);
+            String javaExecutable = resolveJavaExecutable();
+            File clientOutput = new File(GAME_DIRECTORY + File.separator + "client-output.txt");
+            resetClientOutput(clientOutput);
+
+            List<LaunchProfile> launchProfiles = buildLaunchProfiles(javaExecutable);
+            for (int attempt = 0; attempt < launchProfiles.size(); attempt++) {
+                LaunchProfile launchProfile = launchProfiles.get(attempt);
+                applyRecommendedClientSettings(launchProfile);
+                updateStatus("Launching game... (" + launchProfile.maxHeapMb + " MB heap)");
+                System.out.println("Launching client with " + launchProfile);
+
+                ProcessBuilder pb = new ProcessBuilder(buildLaunchCommand(javaExecutable, clientPath, launchProfile));
+                pb.directory(new File(GAME_DIRECTORY));
+                pb.redirectErrorStream(true);
+                pb.redirectOutput(ProcessBuilder.Redirect.appendTo(clientOutput));
+
+                Process process = pb.start();
+
+                if (!process.waitFor(4, TimeUnit.SECONDS)) {
+                    // Close launcher only after the client stays alive long enough to be considered launched.
+                    Thread.sleep(1000);
+                    System.exit(0);
+                    return;
+                }
+
+                int exitCode = process.exitValue();
+                boolean canRetry = attempt + 1 < launchProfiles.size();
+                if (canRetry && isHeapReservationFailure(clientOutput)) {
+                    updateStatus("Retrying with lower memory settings...");
+                    System.out.println("Client failed to reserve heap; retrying with a smaller profile.");
+                    continue;
+                }
+
+                updateStatus("Client failed to launch (exit " + exitCode + "). See client-output.txt");
+                return;
+            }
             
         } catch (Exception e) {
             e.printStackTrace();
             updateStatus("Error launching: " + e.getMessage());
         }
     }
-    
+
+    private String resolveJavaExecutable() {
+        File preferred = new File(PREFERRED_JAVA_PATH);
+        if (preferred.exists() && preferred.isFile()) {
+            return preferred.getAbsolutePath();
+        }
+        return "java";
+    }
+
+    private List<String> buildLaunchCommand(String javaExecutable, String clientPath, LaunchProfile launchProfile) {
+        List<String> command = new ArrayList<>();
+        command.add(javaExecutable);
+        command.add("-XX:-OmitStackTraceInFastThrow");
+        command.add("-Drunecartel.lite=true");
+        // Java2D hardware acceleration - critical for canvas blit performance
+        command.add("-Dsun.java2d.d3d=true");
+        command.add("-Dsun.java2d.noddraw=false");
+        command.add("-Dsun.java2d.d3dtexbpp=16");
+        // Optimize for throughput GC (less GC pauses during rendering)
+        command.add("-XX:+UseG1GC");
+        command.add("-XX:MaxGCPauseMillis=10");
+        command.add("-Xmx" + launchProfile.maxHeapMb + "m");
+        command.add("-Xms" + launchProfile.initialHeapMb + "m");
+        command.add("-jar");
+        command.add(clientPath);
+        command.add("--safe-mode");
+        return command;
+    }
+
+    private List<LaunchProfile> buildLaunchProfiles(String javaExecutable) {
+        List<LaunchProfile> profiles = new ArrayList<>();
+        LaunchProfile primaryProfile = determineLaunchProfile(javaExecutable);
+        profiles.add(primaryProfile);
+
+        int[] fallbackHeaps = {1024, 768, 512};
+        for (int heapMb : fallbackHeaps) {
+            if (heapMb < primaryProfile.maxHeapMb && !containsHeapProfile(profiles, heapMb)) {
+                profiles.add(createLaunchProfile(heapMb));
+            }
+        }
+
+        if (profiles.isEmpty()) {
+            profiles.add(createLaunchProfile(512));
+        }
+        return profiles;
+    }
+
+    private boolean containsHeapProfile(List<LaunchProfile> profiles, int heapMb) {
+        for (LaunchProfile profile : profiles) {
+            if (profile.maxHeapMb == heapMb) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private LaunchProfile determineLaunchProfile(String javaExecutable) {
+        boolean is64Bit = isLikely64BitJava(javaExecutable);
+        long freePhysicalMemoryMb = getFreePhysicalMemoryMb();
+
+        int heapMb;
+        if (!is64Bit) {
+            heapMb = 768;
+        } else if (freePhysicalMemoryMb < 0L) {
+            heapMb = 1024;
+        } else if (freePhysicalMemoryMb >= 6144L) {
+            heapMb = 1536;
+        } else if (freePhysicalMemoryMb >= 3584L) {
+            heapMb = 1024;
+        } else if (freePhysicalMemoryMb >= 2560L) {
+            heapMb = 768;
+        } else {
+            heapMb = 512;
+        }
+
+        return createLaunchProfile(heapMb);
+    }
+
+    private LaunchProfile createLaunchProfile(int heapMb) {
+        int initialHeapMb = Math.min(512, Math.max(256, heapMb / 2));
+        int modelCacheMb = heapMb >= 1024 ? 384 : heapMb >= 768 ? 256 : 192;
+        int gpuDrawDistance = heapMb >= 1024 ? 10 : 8;
+        int hdDrawDistance = heapMb >= 1024 ? 12 : 10;
+        return new LaunchProfile(heapMb, initialHeapMb, modelCacheMb, gpuDrawDistance, hdDrawDistance);
+    }
+
+    private boolean isLikely64BitJava(String javaExecutable) {
+        String lowerJavaPath = javaExecutable.toLowerCase();
+        if (lowerJavaPath.contains("program files (x86)")) {
+            return false;
+        }
+        return System.getProperty("os.arch", "").contains("64") || System.getProperty("sun.arch.data.model", "").contains("64");
+    }
+
+    private long getFreePhysicalMemoryMb() {
+        try {
+            java.lang.management.OperatingSystemMXBean operatingSystemMXBean = ManagementFactory.getOperatingSystemMXBean();
+            if (operatingSystemMXBean instanceof com.sun.management.OperatingSystemMXBean) {
+                com.sun.management.OperatingSystemMXBean sunBean = (com.sun.management.OperatingSystemMXBean) operatingSystemMXBean;
+                return sunBean.getFreePhysicalMemorySize() / (1024L * 1024L);
+            }
+        } catch (Exception e) {
+            System.out.println("Could not detect free physical memory: " + e.getMessage());
+        }
+        return -1L;
+    }
+
+    private void resetClientOutput(File clientOutput) {
+        try {
+            Files.write(clientOutput.toPath(), new byte[0], StandardOpenOption.CREATE, StandardOpenOption.TRUNCATE_EXISTING);
+        } catch (IOException e) {
+            System.out.println("Could not reset client-output.txt: " + e.getMessage());
+        }
+    }
+
+    private boolean isHeapReservationFailure(File clientOutput) {
+        try {
+            if (!clientOutput.exists()) {
+                return false;
+            }
+
+            byte[] outputBytes = Files.readAllBytes(clientOutput.toPath());
+            String output = new String(outputBytes, StandardCharsets.UTF_8);
+            return output.contains("Could not reserve enough space") || output.contains("Error occurred during initialization of VM");
+        } catch (IOException e) {
+            System.out.println("Could not inspect client-output.txt: " + e.getMessage());
+            return false;
+        }
+    }
+
+    private void applyRecommendedClientSettings(LaunchProfile launchProfile) {
+        File settingsFile = new File(GAME_DIRECTORY + File.separator + "settings.properties");
+        Properties props = new Properties();
+
+        if (settingsFile.exists()) {
+            try (FileInputStream fis = new FileInputStream(settingsFile)) {
+                props.load(fis);
+            } catch (Exception e) {
+                e.printStackTrace();
+            }
+        }
+
+        props.setProperty("runelite.gpuplugin", "false");
+        props.setProperty("runelite.hdplugin", "false");
+        props.setProperty("gpu.useComputeShaders", "false");
+        props.setProperty("gpu.drawDistance", String.valueOf(launchProfile.gpuDrawDistance));
+        props.setProperty("gpu.antiAliasingMode", "DISABLED");
+        props.setProperty("gpu.anisotropicFilteringLevel", "0");
+        props.setProperty("gpu.vsyncMode", "OFF");
+        props.setProperty("gpu.fpsTarget", "50");
+        props.setProperty("fpscontrol.limitFps", "true");
+        props.setProperty("fpscontrol.maxFps", "50");
+        props.setProperty("stretchedmode.increasedPerformance", "true");
+        props.setProperty("animationSmoothing.smoothPlayerAnimations", "false");
+        props.setProperty("animationSmoothing.smoothNpcAnimations", "false");
+        props.setProperty("animationSmoothing.smoothGraphicAnimations", "false");
+        props.setProperty("animationSmoothing.smoothObjectAnimations", "false");
+        props.setProperty("hd.drawDistance", String.valueOf(launchProfile.hdDrawDistance));
+        props.setProperty("hd.shadowMode", "OFF");
+        props.setProperty("hd.shadowResolution", "RES_1024");
+        props.setProperty("hd.shadowDistance", "DISTANCE_20");
+        props.setProperty("hd.antiAliasingMode", "DISABLED");
+        props.setProperty("hd.maxDynamicLights", "NONE");
+        props.setProperty("hd.normalMapping", "false");
+        props.setProperty("hd.parallaxOcclusionMappingToggle", "false");
+        props.setProperty("hd.environmentalLighting", "false");
+        props.setProperty("hd.projectileLights", "false");
+        props.setProperty("hd.npcLights", "false");
+        props.setProperty("hd.groundFog", "false");
+        props.setProperty("hd.underwaterCaustics", "false");
+        props.setProperty("hd.anisotropicFilteringLevel", "0");
+        props.setProperty("hd.useModelCaching", "true");
+        props.setProperty("hd.modelCacheSizeMiB", String.valueOf(launchProfile.modelCacheMb));
+        props.setProperty("hd.modelCacheSizeMiBv2", String.valueOf(Math.min(256, launchProfile.modelCacheMb)));
+        props.setProperty("entityhider.hidePlayers", "false");
+        props.setProperty("entityhider.hidePlayers2D", "false");
+        props.setProperty("fpscontrol.drawFps", "false");
+
+        try (FileOutputStream fos = new FileOutputStream(settingsFile)) {
+            props.store(fos, "RuneLite configuration");
+        } catch (Exception e) {
+            e.printStackTrace();
+        }
+    }
+
     private void updateStatus(String message) {
         SwingUtilities.invokeLater(() -> statusLabel.setText(message));
     }
     
     private void setProgress(int value) {
         SwingUtilities.invokeLater(() -> progressBar.setValue(value));
+    }
+
+    private static final class LaunchProfile {
+        private final int maxHeapMb;
+        private final int initialHeapMb;
+        private final int modelCacheMb;
+        private final int gpuDrawDistance;
+        private final int hdDrawDistance;
+
+        private LaunchProfile(int maxHeapMb, int initialHeapMb, int modelCacheMb, int gpuDrawDistance, int hdDrawDistance) {
+            this.maxHeapMb = maxHeapMb;
+            this.initialHeapMb = initialHeapMb;
+            this.modelCacheMb = modelCacheMb;
+            this.gpuDrawDistance = gpuDrawDistance;
+            this.hdDrawDistance = hdDrawDistance;
+        }
+
+        @Override
+        public String toString() {
+            return "Xmx=" + maxHeapMb + "m, Xms=" + initialHeapMb + "m, modelCache=" + modelCacheMb + "m, gpuDrawDistance=" + gpuDrawDistance + ", hdDrawDistance=" + hdDrawDistance;
+        }
     }
     
     public static void main(String[] args) {

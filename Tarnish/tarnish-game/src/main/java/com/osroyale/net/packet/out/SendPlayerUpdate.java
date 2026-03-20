@@ -101,6 +101,7 @@ public final class SendPlayerUpdate extends OutgoingPacket {
             }
         } catch (Exception ex) {
             logger.error(String.format("error updating player=%s", player), ex);
+            return false;
         } finally {
             blockBuf.release();
         }

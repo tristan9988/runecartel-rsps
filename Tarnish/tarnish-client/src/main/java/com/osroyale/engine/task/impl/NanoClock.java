@@ -67,13 +67,17 @@ public class NanoClock extends Clock implements RSNanoClock {
                 return 1;
             }
         } else {
-            long var3 = (long) var2 * 1000000L;
-            long var5 = this.lastTimeNano - System.nanoTime();
-            if (var5 < var3) {
-                var5 = var3;
-            }
+            long remainingNanos = this.lastTimeNano - System.nanoTime();
 
-            TaskUtils.sleep(var5 / 1000000L);
+            if (remainingNanos > 1000000L) {
+                // We have real time to spare before the next frame — sleep precisely
+                TaskUtils.sleep(remainingNanos / 1000000L);
+            } else if (remainingNanos > 0) {
+                // Less than 1ms remaining — yield instead of sleeping (avoids 15ms Windows penalty)
+                Thread.yield();
+            }
+            // If remainingNanos <= 0, we're behind schedule — don't sleep at all
+
             long var7 = System.nanoTime();
 
             int var9;

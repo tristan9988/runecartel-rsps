@@ -18,15 +18,6 @@ public final class ParallelClientSynchronizer implements ClientSynchronizer {
 
     @Override
     public void synchronize(MobList<Player> players, MobList<Npc> npcs) {
-        // npc movement
-/*        phaser.bulkRegister(npcs.size());
-        npcs.forEach(npc -> executor.submit(new PhasedUpdateTask(phaser, new NpcPreUpdateTask(npc))));
-        phaser.arriveAndAwaitAdvance();*/
-
-        // player movement
-/*        phaser.bulkRegister(players.size());
-        players.forEach(player -> executor.submit(new PhasedUpdateTask(phaser, new PlayerPreUpdateTask(player))));
-        phaser.arriveAndAwaitAdvance();*/
 
         // player updating
         phaser.bulkRegister(players.size());
