@@ -31,7 +31,7 @@ public class Launcher extends JFrame {
     // Format: https://github.com/YOUR_USERNAME/YOUR_REPO/releases/download/latest/
     private static final String REMOTE_BASE_URL = "https://github.com/tristan9988/runecartel-updates/releases/download/latest/";
     // =====================================================
-    private static final boolean USE_REMOTE_UPDATES = false;
+    private static final boolean USE_REMOTE_UPDATES = true;
 
     private static final String CLIENT_JAR = "RuneCartel.jar";
     private static final String GAME_DIRECTORY = System.getProperty("user.home") + File.separator + ".runecartel";
